@@ -317,3 +317,25 @@ class VldSomeOf(Validator[List[T]]):
                     next_validators.append(validator)
             validators = next_validators
         return ValidatorOK(results, processed=total_processed)
+
+class VldHourMinute(Validator[Tuple[int, int]]):
+    regex: VldRegex
+
+    def __init__(self) -> None:
+        self.regex = VldRegex(r"^([0-9]{1,2}):([0-9]{2})$", [1, 2])
+
+    def validate(self, args: List[str]) -> ValidatorResult[Tuple[int, int]]:
+        if len(args) == 0:
+            return ValidatorFail("No argument provided")
+        result = self.regex.validate(args)
+        if isinstance(result, ValidatorFail):
+            return ValidatorFail("Failed to parse hh:mm")
+        else:
+            assert isinstance(result, ValidatorOK)
+            hh, mm = (int(result.value[0]), int(result.value[1]))
+            if hh >= 23:
+                return ValidatorFail("Hour cannot be >23")
+            elif mm >= 59:
+                return ValidatorFail("Minute cannot be >59")
+            else:
+                return ValidatorOK((hh, mm), processed=result.processed)

@@ -259,3 +259,23 @@ class TestParser(unittest.TestCase):
                 return p.VldFixedStr("moi")
             self.assertEqual(p.VldDelayed(fixed).validate(["moi"]),
                              p.ValidatorOK("moi", processed=1))
+
+    def test_hhmm(self) -> None:
+        with self.subTest():
+            self.assertEqual(p.VldHourMinute().validate([]),
+                             p.ValidatorFail("No argument provided"))
+        with self.subTest():
+            self.assertEqual(p.VldHourMinute().validate([":00"]),
+                             p.ValidatorFail("Failed to parse hh:mm"))
+        with self.subTest():
+            self.assertEqual(p.VldHourMinute().validate(["0:0"]),
+                             p.ValidatorFail("Failed to parse hh:mm"))
+        with self.subTest():
+            self.assertEqual(p.VldHourMinute().validate(["00:00"]),
+                             p.ValidatorOK((00, 00), processed=1))
+        with self.subTest():
+            self.assertEqual(p.VldHourMinute().validate(["24:00"]),
+                             p.ValidatorFail("Hour cannot be >23"))
+        with self.subTest():
+            self.assertEqual(p.VldHourMinute().validate(["00:70"]),
+                             p.ValidatorFail("Minute cannot be >59"))
