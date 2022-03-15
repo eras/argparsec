@@ -1,20 +1,13 @@
 import re
-
 from abc import ABC, abstractmethod
+from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union
 
-from typing import List, Callable, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union
-
-Validated = TypeVar("Validated")
-
+Parsed = TypeVar("Parsed")
 T = TypeVar("T")
-
 T1 = TypeVar("T1")
-
 T2 = TypeVar("T2")
-
-Tag = TypeVar('Tag')
-
-class ValidatorResult(ABC, Generic[Validated]):
+TagT = TypeVar('TagT')
+class ParseResult(ABC, Generic[Parsed]):
     def __str__(self) -> str:
         return self.__repr__()
 
@@ -23,20 +16,20 @@ class ValidatorResult(ABC, Generic[Validated]):
         pass
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(self, ValidatorOK) and isinstance(other, ValidatorOK):
+        if isinstance(self, ParseOK) and isinstance(other, ParseOK):
             return (self.value, self.processed) == (other.value, other.processed)
-        if isinstance(self, ValidatorFail) and isinstance(other, ValidatorFail):
+        if isinstance(self, ParseFail) and isinstance(other, ParseFail):
             return self.message == other.message
         return False
 
-class ValidatorOK(ValidatorResult[Validated]):
-    value: Validated
-    """Result of validation"""
+class ParseOK(ParseResult[Parsed]):
+    value: Parsed
+    """Result of parsing"""
 
     processed: int
     """How many args from invocation.args were processed"""
 
-    def __init__(self, value: Validated, processed: int) -> None:
+    def __init__(self, value: Parsed, processed: int) -> None:
         self.value = value
         self.processed = processed
 
@@ -44,60 +37,60 @@ class ValidatorOK(ValidatorResult[Validated]):
         value = str(self.value)
         if isinstance(self.value, str):
             value = f"\"{value}\""
-        return f"ValidatorOK({value}, {self.processed})"
+        return f"ParseOK({value}, {self.processed})"
 
-class ValidatorFail(ValidatorResult[Validated]):
+class ParseFail(ParseResult[Parsed]):
     message: str
     def __init__(self, message: str):
         self.message = message
 
     def __repr__(self) -> str:
-        return f"ValidatorFail(\"{self.message}\")"
+        return f"ParseFail(\"{self.message}\")"
 
-class Validator(ABC, Generic[Validated]):
-    def __call__(self, args: List[str]) -> ValidatorResult[Validated]:
-        return self.validate(args)
+class Parser(ABC, Generic[Parsed]):
+    def __call__(self, args: List[str]) -> ParseResult[Parsed]:
+        return self.parse(args)
 
     @abstractmethod
-    def validate(self, args: List[str]) -> ValidatorResult[Validated]:
+    def parse(self, args: List[str]) -> ParseResult[Parsed]:
         pass
 
-    def base(self) -> "Validator[Validated]":
+    def base(self) -> "Parser[Parsed]":
         return self
 
-    def any(self) -> "Validator[Any]":
+    def any(self) -> "Parser[Any]":
         return self
 
-Empty = Tuple[()]
+EmptyVal = Tuple[()]
 
-class VldEmpty(Validator[Empty]):
-    def validate(self, args: List[str]) -> ValidatorResult[Empty]:
+class Empty(Parser[EmptyVal]):
+    def parse(self, args: List[str]) -> ParseResult[EmptyVal]:
         if len(args) == 0:
-            return ValidatorOK((), processed=0)
+            return ParseOK((), processed=0)
         else:
-            return ValidatorFail("Expected no more arguments")
+            return ParseFail("Expected no more arguments")
 
-class VldAnyStr(Validator[str]):
-    def validate(self, args: List[str]) -> ValidatorResult[str]:
+class AnyStr(Parser[str]):
+    def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:
-            return ValidatorFail("No argument provided")
-        return ValidatorOK(args[0], processed=1)
+            return ParseFail("No argument provided")
+        return ParseOK(args[0], processed=1)
 
-class VldFixedStr(Validator[str]):
+class FixedStr(Parser[str]):
     fixed_string: str
 
     def __init__(self, fixed_string: str) -> None:
         self.fixed_string = fixed_string.lower()
 
-    def validate(self, args: List[str]) -> ValidatorResult[str]:
+    def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:
-            return ValidatorFail("No argument provided")
+            return ParseFail("No argument provided")
         if args[0].lower() == self.fixed_string.lower():
-            return ValidatorOK(args[0], processed=1)
+            return ParseOK(args[0], processed=1)
         else:
-            return ValidatorFail("Expected {self.fixed_string}")
+            return ParseFail("Expected {self.fixed_string}")
 
-class VldRegex(Validator[Tuple[str, ...]]):
+class Regex(Parser[Tuple[str, ...]]):
     regex: "re.Pattern[str]"
     groups: List[Union[int, str]]
 
@@ -105,280 +98,280 @@ class VldRegex(Validator[Tuple[str, ...]]):
         self.regex = re.compile(regex)
         self.groups = groups
 
-    def validate(self, args: List[str]) -> ValidatorResult[Tuple[str, ...]]:
+    def parse(self, args: List[str]) -> ParseResult[Tuple[str, ...]]:
         if len(args) == 0:
-            return ValidatorFail("No argument provided")
+            return ParseFail("No argument provided")
         match = re.match(self.regex, args[0])
         if match:
-            return ValidatorOK(match.group(*self.groups), processed=1)
+            return ParseOK(match.group(*self.groups), processed=1)
         else:
-            return ValidatorFail(f"Failed to match regex {self.regex}")
+            return ParseFail(f"Failed to match regex {self.regex}")
 
-class VldInt(Validator[int]):
-    validator: VldRegex
+class Int(Parser[int]):
+    parser: Regex
 
     def __init__(self) -> None:
         super().__init__()
-        self.validator = VldRegex(r"[0-9]+", [0])
+        self.parser = Regex(r"[0-9]+", [0])
 
-    def validate(self, args: List[str]) -> ValidatorResult[int]:
-        result = self.validator.validate(args)
-        if isinstance(result, ValidatorOK):
-            return ValidatorOK(int(result.value), processed=result.processed)
+    def parse(self, args: List[str]) -> ParseResult[int]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseOK):
+            return ParseOK(int(result.value), processed=result.processed)
         else:
-            assert isinstance(result, ValidatorFail)
+            assert isinstance(result, ParseFail)
             return result
 
-class VldBool(Validator[bool]):
-    def validate(self, args: List[str]) -> ValidatorResult[bool]:
+class Bool(Parser[bool]):
+    def parse(self, args: List[str]) -> ParseResult[bool]:
         if len(args) == 0:
-            return ValidatorFail("No argument provided")
+            return ParseFail("No argument provided")
         value = args[0].lower()
         if ["on", "true", "1"].count(value):
-            return ValidatorOK(True, processed=1)
+            return ParseOK(True, processed=1)
         elif ["off", "false", "0"].count(value):
-            return ValidatorOK(False, processed=1)
+            return ParseOK(False, processed=1)
         else:
-            return ValidatorFail(f"Invalid argument \"{args[0]}\" for boolean")
+            return ParseFail(f"Invalid argument \"{args[0]}\" for boolean")
 
-class VldOptional(Validator[Optional[T]]):
-    validator: Validator[T]
+class Optional_(Parser[Optional[T]]):
+    parser: Parser[T]
 
-    def __init__(self, validator: Validator[T]) -> None:
-        self.validator = validator
+    def __init__(self, parser: Parser[T]) -> None:
+        self.parser = parser
 
-    def validate(self, args: List[str]) -> ValidatorResult[Optional[T]]:
-        result = self.validator.validate(args)
-        if isinstance(result, ValidatorOK):
-            return ValidatorOK(result.value, processed=result.processed)
+    def parse(self, args: List[str]) -> ParseResult[Optional[T]]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseOK):
+            return ParseOK(result.value, processed=result.processed)
         else:
-            return ValidatorOK(None, processed=0)
+            return ParseOK(None, processed=0)
 
-class VldValidOrMissing(Validator[Optional[T]]):
-    validator: Validator[T]
+class ValidOrMissing(Parser[Optional[T]]):
+    parser: Parser[T]
 
-    def __init__(self, validator: Validator[T]) -> None:
-        self.validator = validator
+    def __init__(self, parser: Parser[T]) -> None:
+        self.parser = parser
 
-    def validate(self, args: List[str]) -> ValidatorResult[Optional[T]]:
+    def parse(self, args: List[str]) -> ParseResult[Optional[T]]:
         if len(args) == 0:
-            return ValidatorOK(None, processed=0)
+            return ParseOK(None, processed=0)
         else:
-            result = self.validator.validate(args)
-            if isinstance(result, ValidatorOK):
-                return ValidatorOK(result.value, processed=result.processed)
+            result = self.parser.parse(args)
+            if isinstance(result, ParseOK):
+                return ParseOK(result.value, processed=result.processed)
             else:
-                assert isinstance(result, ValidatorFail)
-                return ValidatorFail(result.message)
+                assert isinstance(result, ParseFail)
+                return ParseFail(result.message)
 
-class VldCapture(Validator[Tuple[List[str], T]]):
-    validator: Validator[T]
+class Capture(Parser[Tuple[List[str], T]]):
+    parser: Parser[T]
 
-    def __init__(self, validator: Validator[T]) -> None:
-        self.validator = validator
+    def __init__(self, parser: Parser[T]) -> None:
+        self.parser = parser
 
-    def validate(self, args: List[str]) -> ValidatorResult[Tuple[List[str], T]]:
-        result = self.validator.validate(args)
-        if isinstance(result, ValidatorOK):
-            return ValidatorOK((args[0:result.processed], result.value), processed=result.processed)
+    def parse(self, args: List[str]) -> ParseResult[Tuple[List[str], T]]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseOK):
+            return ParseOK((args[0:result.processed], result.value), processed=result.processed)
         else:
-            assert isinstance(result, ValidatorFail)
+            assert isinstance(result, ParseFail)
             return result
 
-class VldCaptureOnly(Validator[List[str]]):
-    validator: Validator[Any]
+class CaptureOnly(Parser[List[str]]):
+    parser: Parser[Any]
 
-    def __init__(self, validator: Validator[Any]) -> None:
-        self.validator = validator
+    def __init__(self, parser: Parser[Any]) -> None:
+        self.parser = parser
 
-    def validate(self, args: List[str]) -> ValidatorResult[List[str]]:
-        result = self.validator.validate(args)
-        if isinstance(result, ValidatorOK):
-            return ValidatorOK(args[0:result.processed], processed=result.processed)
+    def parse(self, args: List[str]) -> ParseResult[List[str]]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseOK):
+            return ParseOK(args[0:result.processed], processed=result.processed)
         else:
-            assert isinstance(result, ValidatorFail)
+            assert isinstance(result, ParseFail)
             return result
 
-class VldMap(Generic[T1, T2], Validator[T2]):
-    validator: Validator[T1]
+class Map(Generic[T1, T2], Parser[T2]):
+    parser: Parser[T1]
     map: List[Callable[[T1], T2]]
 
-    def __init__(self, validator: Validator[T1], map: Callable[[T1], T2]) -> None:
-        self.validator = validator
+    def __init__(self, parser: Parser[T1], map: Callable[[T1], T2]) -> None:
+        self.parser = parser
         self.map = [map]
 
-    def validate(self, args: List[str]) -> ValidatorResult[T2]:
-        result = self.validator.validate(args)
-        if isinstance(result, ValidatorOK):
-            return ValidatorOK(self.map[0](result.value), processed=result.processed)
+    def parse(self, args: List[str]) -> ParseResult[T2]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseOK):
+            return ParseOK(self.map[0](result.value), processed=result.processed)
         else:
-            assert isinstance(result, ValidatorFail)
-            return ValidatorFail(result.message)
+            assert isinstance(result, ParseFail)
+            return ParseFail(result.message)
 
-class VldMapDict(VldMap[List[Tuple[Tag, T]], Mapping[Tag, T]]):
-    validator: Validator[List[Tuple[Tag, T]]]
+class MapDict(Map[List[Tuple[TagT, T]], Mapping[TagT, T]]):
+    parser: Parser[List[Tuple[TagT, T]]]
 
-    def __init__(self, validator: Validator[List[Tuple[Tag, T]]]) -> None:
-        def mapping(xs: List[Tuple[Tag, T]]) -> Mapping[Tag, T]:
+    def __init__(self, parser: Parser[List[Tuple[TagT, T]]]) -> None:
+        def mapping(xs: List[Tuple[TagT, T]]) -> Mapping[TagT, T]:
             return dict(xs)
-        super().__init__(validator, map=mapping)
+        super().__init__(parser, map=mapping)
 
-class VldTag(VldMap[T, Tuple[Tag, T]]):
+class Tag(Map[T, Tuple[TagT, T]]):
     """Maps the result so that it is preceded by the given tag (in a 2-tuple)
 
     Can be useful with VldSomeOf for identifying which values came back.
     """
 
-    tag: Tag
+    tag: TagT
 
-    def __init__(self, tag: Tag, validator: Validator[T]) -> None:
-        def mapping(x: T) -> Tuple[Tag, T]:
+    def __init__(self, tag: TagT, parser: Parser[T]) -> None:
+        def mapping(x: T) -> Tuple[TagT, T]:
             return (tag, x)
-        super().__init__(validator, map=mapping)
+        super().__init__(parser, map=mapping)
         self.tag = tag
 
-class VldAdjacent(Validator[Tuple[T1, T2]]):
+class Adjacent(Parser[Tuple[T1, T2]]):
     """Validates two values in the same order as the given validtors"""
 
-    validator_left: Validator[T1]
-    validator_right: Validator[T2]
+    parser_left: Parser[T1]
+    parser_right: Parser[T2]
 
     def __init__(self,
-                 validator_left: Validator[T1],
-                 validator_right: Validator[T2]) -> None:
-        self.validator_left = validator_left
-        self.validator_right = validator_right
+                 parser_left: Parser[T1],
+                 parser_right: Parser[T2]) -> None:
+        self.parser_left = parser_left
+        self.parser_right = parser_right
 
-    def validate(self, args: List[str]) -> ValidatorResult[Tuple[T1, T2]]:
-        left = self.validator_left.validate(args)
-        if isinstance(left, ValidatorFail):
-            return ValidatorFail(f"{left.message} while parsing first argument")
-        assert(isinstance(left, ValidatorOK))
+    def parse(self, args: List[str]) -> ParseResult[Tuple[T1, T2]]:
+        left = self.parser_left.parse(args)
+        if isinstance(left, ParseFail):
+            return ParseFail(f"{left.message} while parsing first argument")
+        assert(isinstance(left, ParseOK))
         remaining = args[left.processed:]
-        right = self.validator_right.validate(remaining)
-        if isinstance(right, ValidatorFail):
-            return ValidatorFail(f"{right.message} while parsing second argument")
-        assert(isinstance(right, ValidatorOK))
-        return ValidatorOK((left.value, right.value), processed=left.processed + right.processed)
+        right = self.parser_right.parse(remaining)
+        if isinstance(right, ParseFail):
+            return ParseFail(f"{right.message} while parsing second argument")
+        assert(isinstance(right, ParseOK))
+        return ParseOK((left.value, right.value), processed=left.processed + right.processed)
 
-class VldSeq(Validator[List[T]]):
-    """Validates a sequence of values in the same order as the given validators
+class Seq(Parser[List[T]]):
+    """Parser a sequence of values in the same order as the given parsers
 
-    This requires all the validators to be of the same type. `Validator.any()` can be useful for
+    This requires all the validators to be of the same type. `Parser.any()` can be useful for
     achieving this, but you lose static type checking. Alternatively you can use `VldMap` to map
     the types.
 
-    If you end up typing different types in the same list, you may find `Validator.base()` useful
+    If you end up typing different types in the same list, you may find `Parser.base()` useful
     for the upcasting.
     """
 
-    validators: List[Validator[T]]
+    validators: List[Parser[T]]
 
-    def __init__(self, validators: List[Validator[T]]) -> None:
-        assert validators, "VldSeq: expected at least one validator"
+    def __init__(self, validators: List[Parser[T]]) -> None:
+        assert validators, "VldSeq: expected at least one parser"
         self.validators = validators
 
-    def validate(self, args: List[str]) -> ValidatorResult[List[T]]:
+    def parse(self, args: List[str]) -> ParseResult[List[T]]:
         results: List[T] = []
         total_processed = 0
-        for index, validator in enumerate(self.validators):
-            result = validator.validate(args)
-            if isinstance(result, ValidatorFail):
-                return ValidatorFail(f"{result.message} while parsing argument {index + 1}")
-            assert(isinstance(result, ValidatorOK))
+        for index, parser in enumerate(self.validators):
+            result = parser.parse(args)
+            if isinstance(result, ParseFail):
+                return ParseFail(f"{result.message} while parsing argument {index + 1}")
+            assert(isinstance(result, ParseOK))
             results.append(result.value)
             total_processed += result.processed
             args = args[result.processed:]
         assert results
-        return ValidatorOK(results, processed=total_processed)
+        return ParseOK(results, processed=total_processed)
 
-class VldOneOf(Validator[T]):
-    validators: List[Validator[T]]
+class OneOf(Parser[T]):
+    validators: List[Parser[T]]
 
-    def __init__(self, validators: List[Validator[T]]) -> None:
+    def __init__(self, validators: List[Parser[T]]) -> None:
         self.validators = validators
 
-    def validate(self, args: List[str]) -> ValidatorResult[T]:
+    def parse(self, args: List[str]) -> ParseResult[T]:
         if len(args) == 0:
-            return ValidatorFail("No argument provided")
-        for validator in self.validators:
-            result = validator.validate(args)
-            if isinstance(result, ValidatorOK):
+            return ParseFail("No argument provided")
+        for parser in self.validators:
+            result = parser.parse(args)
+            if isinstance(result, ParseOK):
                 return result
-        return ValidatorFail(f"Invalid value")
+        return ParseFail(f"Invalid value")
 
-class VldOneOfStrings(Validator[str]):
+class OneOfStrings(Parser[str]):
     strings: List[str]
 
     def __init__(self, strings: List[str]) -> None:
         self.strings = strings
 
-    def validate(self, args: List[str]) -> ValidatorResult[str]:
+    def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:
-            return ValidatorFail("No argument provided")
+            return ParseFail("No argument provided")
         if [str.lower() for str in self.strings].count(args[0]):
-            return ValidatorOK(args[0], processed=1)
+            return ParseOK(args[0], processed=1)
         else:
             valid_values = ", ".join(self.strings)
-            return ValidatorFail(f"Expected one of {valid_values}")
+            return ParseFail(f"Expected one of {valid_values}")
 
-class VldDelayed(Validator[T]):
-    mk_validator: List[Callable[[], Validator[T]]]
+class Delayed(Parser[T]):
+    mk_validator: List[Callable[[], Parser[T]]]
 
-    def __init__(self, validator: Callable[[], Validator[T]]):
-        self.validator = validator
+    def __init__(self, parser: Callable[[], Parser[T]]):
+        self.parser = parser
 
-    def validate(self, args: List[str]) -> ValidatorResult[T]:
-        return self.validator().validate(args)
+    def parse(self, args: List[str]) -> ParseResult[T]:
+        return self.parser().parse(args)
 
-class VldSomeOf(Validator[List[T]]):
+class SomeOf(Parser[List[T]]):
     """Validates a sequence of values with given validators, but the order of the values can be anything
     and they can also be omitted in part or completely."""
 
-    validators: List[Validator[T]]
+    validators: List[Parser[T]]
 
-    def __init__(self, validators: List[Validator[T]]) -> None:
-        assert validators, "VldSeq: expected at least one validator"
+    def __init__(self, validators: List[Parser[T]]) -> None:
+        assert validators, "VldSeq: expected at least one parser"
         self.validators = validators
 
-    def validate(self, args: List[str]) -> ValidatorResult[List[T]]:
+    def parse(self, args: List[str]) -> ParseResult[List[T]]:
         validators = self.validators
         total_processed = 0
         any_matched = True
         results: List[T] = []
         while any_matched:
             any_matched = False
-            next_validators: List[Validator[T]] = []
-            for validator in validators:
-                result = validator.validate(args)
-                if isinstance(result, ValidatorOK):
+            next_validators: List[Parser[T]] = []
+            for parser in validators:
+                result = parser.parse(args)
+                if isinstance(result, ParseOK):
                     results.append(result.value)
                     total_processed += result.processed
                     args = args[result.processed:]
                     any_matched = True
                 else:
-                    next_validators.append(validator)
+                    next_validators.append(parser)
             validators = next_validators
-        return ValidatorOK(results, processed=total_processed)
+        return ParseOK(results, processed=total_processed)
 
-class VldHourMinute(Validator[Tuple[int, int]]):
-    regex: VldRegex
+class HourMinute(Parser[Tuple[int, int]]):
+    regex: Regex
 
     def __init__(self) -> None:
-        self.regex = VldRegex(r"^([0-9]{1,2}):([0-9]{2})$", [1, 2])
+        self.regex = Regex(r"^([0-9]{1,2}):([0-9]{2})$", [1, 2])
 
-    def validate(self, args: List[str]) -> ValidatorResult[Tuple[int, int]]:
+    def parse(self, args: List[str]) -> ParseResult[Tuple[int, int]]:
         if len(args) == 0:
-            return ValidatorFail("No argument provided")
-        result = self.regex.validate(args)
-        if isinstance(result, ValidatorFail):
-            return ValidatorFail("Failed to parse hh:mm")
+            return ParseFail("No argument provided")
+        result = self.regex.parse(args)
+        if isinstance(result, ParseFail):
+            return ParseFail("Failed to parse hh:mm")
         else:
-            assert isinstance(result, ValidatorOK)
+            assert isinstance(result, ParseOK)
             hh, mm = (int(result.value[0]), int(result.value[1]))
             if hh > 23:
-                return ValidatorFail("Hour cannot be >23")
+                return ParseFail("Hour cannot be >23")
             elif mm > 59:
-                return ValidatorFail("Minute cannot be >59")
+                return ParseFail("Minute cannot be >59")
             else:
-                return ValidatorOK((hh, mm), processed=result.processed)
+                return ParseOK((hh, mm), processed=result.processed)

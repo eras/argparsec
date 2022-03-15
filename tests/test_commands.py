@@ -1,5 +1,3 @@
-import argparsec.parser as p
-
 import asyncio
 
 import unittest
@@ -8,6 +6,8 @@ from typing import List, TypeVar, Optional
 
 import argparsec.commands as c
 
+import argparsec.parser as p
+
 Result = TypeVar('Result', bound=object)
 
 class TestCommands(unittest.TestCase):
@@ -15,7 +15,7 @@ class TestCommands(unittest.TestCase):
         super().__init__(method_name)
         self.longMessage = True
 
-    def setup_commands(self, called: List[Optional[Result]], valid: p.Validator[Result]) -> c.Commands[None]:
+    def setup_commands(self, called: List[Optional[Result]], valid: p.Parser[Result]) -> c.Commands[None]:
         cmds = c.Commands[None]()
         async def command0(context: None, valid: Result) -> None:
             called[0] = valid
@@ -27,8 +27,8 @@ class TestCommands(unittest.TestCase):
 
     def test_simple_call(self) -> None:
         async def test() -> None:
-            called: List[Optional[p.Empty]] = [None, None]
-            cmds = self.setup_commands(called, p.VldEmpty())
+            called: List[Optional[p.EmptyVal]] = [None, None]
+            cmds = self.setup_commands(called, p.Empty())
             await cmds.invoke(None, c.Invocation(name="test0", args=[]))
             self.assertIsNotNone(called[0], "Command test0 was not called")
             self.assertIsNone(called[1], "Command test1 was called")
@@ -37,7 +37,7 @@ class TestCommands(unittest.TestCase):
     def test_validated_call(self) -> None:
         async def test() -> None:
             called: List[Optional[str]] = [None, None]
-            cmds = self.setup_commands(called, p.VldAnyStr())
+            cmds = self.setup_commands(called, p.AnyStr())
             await cmds.invoke(None, c.Invocation(name="test0", args=["arg1"]))
             self.assertEqual(called[0], "arg1", "Command test0 was not called")
             self.assertIsNone(called[1], "Command test1 was called")

@@ -1,5 +1,3 @@
-from .parser import Validator, ValidatorOK
-
 import re
 
 from dataclasses import dataclass
@@ -8,9 +6,11 @@ from abc import ABC, abstractmethod
 
 from typing import List, Callable, Coroutine, Any, TypeVar, Generic
 
+from .parser import Parser, ParseOK
+
 Context = TypeVar("Context")
 
-Validated = TypeVar("Validated")
+Parsed = TypeVar("Parsed")
 
 class InvocationParseError(Exception):
     pass
@@ -41,28 +41,28 @@ class Command(ABC, Generic[Context]):
         pass
 
     @abstractmethod
-    def validate(self, context: Context, invocation: Invocation) -> bool:
+    def parse(self, context: Context, invocation: Invocation) -> bool:
         """Validate the command arguments without invoking it"""
         pass
 
-class Function(Command[Context], Generic[Context, Validated]):
-    validator: Validator[Validated]
-    fn: List[Callable[[Context, Validated], Coroutine[Any, Any, None]]]
+class Function(Command[Context], Generic[Context, Parsed]):
+    parser: Parser[Parsed]
+    fn: List[Callable[[Context, Parsed], Coroutine[Any, Any, None]]]
 
     def __init__(self, name: str,
-                 validator: Validator[Validated],
-                 fn: Callable[[Context, Validated], Coroutine[Any, Any, None]]) -> None:
+                 parser: Parser[Parsed],
+                 fn: Callable[[Context, Parsed], Coroutine[Any, Any, None]]) -> None:
         super().__init__(name)
-        self.validator = validator
+        self.parser = parser
         self.fn = [fn]
 
     async def invoke(self, context: Context, invocation: Invocation) -> None:
-        validated = self.validator(invocation.args)
-        assert isinstance(validated, ValidatorOK), f"Expected invocation {invocation} to be validated: {validated}"
+        validated = self.parser(invocation.args)
+        assert isinstance(validated, ParseOK), f"Expected invocation {invocation} to be validated: {validated}"
         await self.fn[0](context, validated.value)
 
-    def validate(self, context: Context, invocation: Invocation) -> bool:
-        return self.validator(invocation.args) is not None
+    def parse(self, context: Context, invocation: Invocation) -> bool:
+        return self.parser(invocation.args) is not None
 
 class Commands(Generic[Context]):
     _commands: List[Command[Context]]
@@ -76,7 +76,7 @@ class Commands(Generic[Context]):
     def has_command(self, name: str) -> bool:
         return bool([command for command in self._commands if command.name == name])
 
-    def validate(self, context: Context, invocation: Invocation) -> bool:
+    def parse(self, context: Context, invocation: Invocation) -> bool:
         """Validate requires the matching command to exist"""
         assert self.has_command(invocation.name)
         return bool([command for command in self._commands if command.name == invocation.name])
