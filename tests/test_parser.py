@@ -151,6 +151,19 @@ class TestParser(unittest.TestCase):
                                                          p.Empty())).parse(["1", "0"]),
                              p.ParseOK((True, (False, ())), processed=2))
 
+    def test_remaining(self) -> None:
+        with self.subTest():
+            self.assertEqual(p.Remaining(p.Bool()).parse([]),
+                             p.ParseFail("No argument provided"))
+
+        with self.subTest():
+            self.assertEqual(p.Remaining(p.Bool()).parse(["false"]),
+                             p.ParseOK(False, processed=1))
+
+        with self.subTest():
+            self.assertEqual(p.Remaining(p.Bool()).parse(["false", "false"]),
+                             p.ParseFail("Extraneous input after command"))
+
     def test_seq(self) -> None:
         with self.subTest():
             self.assertEqual(p.Seq([p.Bool(),
