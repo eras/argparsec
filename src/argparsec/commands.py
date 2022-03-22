@@ -108,7 +108,7 @@ class Commands(Generic[Context]):
         self._commands.append(command)
 
     def has_command(self, name: str) -> bool:
-        return bool([command for command in self._commands if command.name == name])
+        return bool([command for command in self._commands if command.name.lower() == name.lower()])
 
     def parse(self, context: Context, invocation: Invocation) -> bool:
         """Validate requires the matching command to exist"""
@@ -117,7 +117,7 @@ class Commands(Generic[Context]):
 
     async def invoke(self, context: Context, invocation: Invocation) -> None:
         for command in self._commands:
-            if command.name == invocation.name:
+            if command.name.lower() == invocation.name.lower():
                 await command.invoke(context, invocation)
 
     def help(self) -> str:
