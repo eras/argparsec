@@ -1,3 +1,5 @@
+import datetime
+
 from typing import Optional, TypeVar, Callable
 
 T = TypeVar("T")
@@ -10,6 +12,9 @@ def assert_some(x: Optional[T], message: Optional[str] = None) -> T:
     else:
         assert x is not None
     return x
+
+def round_to_next_second(time: datetime.datetime) -> datetime.datetime:
+    return time + datetime.timedelta(microseconds=1000000-time.microsecond)
 
 def coalesce(*xs: Optional[T]) -> T:
     """Return the first non-None value from the list; there must be at least one"""
