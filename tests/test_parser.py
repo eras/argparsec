@@ -1,11 +1,7 @@
 import asyncio
-
 import unittest
-
 import datetime
-
 from typing import List, TypeVar, Optional, Tuple
-
 from enum import Enum
 
 import argparsec.parser as p
@@ -17,7 +13,7 @@ class TestParser(unittest.TestCase):
         super().__init__(method_name)
         self.longMessage = True
 
-    def test_simple_validators(self) -> None:
+    def test_simple_parsers(self) -> None:
         with self.subTest():
             self.assertEqual(p.Empty().parse([]),
                              p.ParseOK((), processed=0))
@@ -100,6 +96,11 @@ class TestParser(unittest.TestCase):
         with self.subTest():
             self.assertEqual(p.Map(p.Bool(), negate).parse(["false"]),
                              p.ParseOK(True, processed=1))
+
+    # def test_one_of(self) -> None:
+    #     with self.subTest():
+    #         self.assertEqual(p.VldOneOf("").parse([]),
+    #                          p.ValidatorFail("No argument provided"))
 
     def test_optional(self) -> None:
         with self.subTest():
@@ -381,6 +382,7 @@ class TestParser(unittest.TestCase):
             self.assertEqual(p.OneOfEnumValue(Test).parse(["world"]),
                              p.ParseOK(Test.b, processed=1))
 
+
     def test_some_of(self) -> None:
         with self.subTest():
             self.assertEqual(p.SomeOf(p.Tag("tag1", p.Bool().any()),
@@ -417,6 +419,7 @@ class TestParser(unittest.TestCase):
                 return p.CaptureFixedStr("moi")
             self.assertEqual(p.Delayed(fixed).parse(["moi"]),
                              p.ParseOK("moi", processed=1))
+
 
     def test_keyword(self) -> None:
         with self.subTest():
