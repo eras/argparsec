@@ -131,6 +131,32 @@ class TestSeparated(unittest.TestCase):
             callback()
         self.assertEqual(calls, [True, False])
 
+    def test_mapping_validation_errors_are_explicit(self) -> None:
+        """Only configured validator errors backtrack; programming errors clear the cache."""
+
+        def validate(value: int) -> int:
+            """Distinguish an expected range failure from an unexpected validator bug."""
+            if value == 101:
+                raise ValueError("range diagnostic")
+            if value == 102:
+                raise RuntimeError("unexpected validator failure")
+            return value
+
+        parser = p.Separated(
+            p.Map(
+                validate,
+                p.Keyword("value", p.Int()),
+                validation_errors=(ValueError,),
+            ),
+            "and",
+        )
+        self.assertEqual(
+            parser.parse(["value", "101"]), p.ParseFail("range diagnostic", 1)
+        )
+        with self.assertRaisesRegex(RuntimeError, "unexpected validator failure"):
+            parser.parse(["value", "50", "and", "value", "102"])
+        self.assertIsNone(p.Adjacent._parse_cache.get())
+
     def test_long_sequence(self) -> None:
         """Validate many short items without depending on Python's recursion limit."""
         args = ["on", "and"] * 1100 + ["off"]

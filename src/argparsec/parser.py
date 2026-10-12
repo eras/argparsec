@@ -374,14 +374,26 @@ class Map(Generic[T1, T2], Parser[T2]):
     parser: Parser[T1]
     map: list[Callable[[T1], T2]]
 
-    def __init__(self, map: Callable[[T1], T2], parser: Parser[T1]) -> None:
+    def __init__(
+        self,
+        map: Callable[[T1], T2],
+        parser: Parser[T1],
+        validation_errors: tuple[type[Exception], ...] = (),
+    ) -> None:
+        """Map parsed values, optionally treating specified validator errors as failures."""
         self.parser = parser
         self.map = [map]
+        self.validation_errors = validation_errors
 
     def parse(self, args: list[str]) -> ParseResult[T2]:
+        """Mark a rejected mapping's last consumed argument; propagate unexpected errors."""
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
-            return ParseOK(self.map[0](result.value), processed=result.processed)
+            try:
+                value = self.map[0](result.value)
+            except self.validation_errors as error:
+                return ParseFail(str(error), processed=max(0, result.processed - 1))
+            return ParseOK(value, processed=result.processed)
         else:
             assert isinstance(result, ParseFail)
             return result.forward(processed=0)
@@ -545,8 +557,15 @@ class Adjacent(Parser[tuple[T1, T2]]):
                 """Search each prefix once; shorter inputs cannot add new prefixes."""
                 found_max_len = None
                 left = None
+                longest_fail: Optional[ParseFail[T1]] = None
                 for max_len in range(len(sub_args), -1, -1):
                     left = self.parser_left.parse(sub_args[0:max_len])
+                    if isinstance(left, ParseFail) and left.processed > 0:
+                        if (
+                            longest_fail is None
+                            or left.processed > longest_fail.processed
+                        ):
+                            longest_fail = left
                     if isinstance(left, ParseOK) and (
                         not require_max_len or left.processed == max_len
                     ):
@@ -554,6 +573,8 @@ class Adjacent(Parser[tuple[T1, T2]]):
                         break
 
                 if found_max_len is None:
+                    if longest_fail is not None:
+                        return longest_fail.forward(processed=0)
                     return ParseFail(
                         "No adjacent arguments parsed completely", processed=0
                     )
