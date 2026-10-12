@@ -1,5 +1,6 @@
 import re
 import datetime
+import contextvars
 from abc import ABC, abstractmethod
 from typing import (
     Callable,
@@ -459,6 +460,10 @@ class Adjacent(Parser[tuple[T1, T2]]):
     parser_right: Parser[T2]
     right_priority: bool
 
+    _parse_cache: contextvars.ContextVar[
+        Optional[dict[tuple[object, tuple[str, ...]], ParseResult[Any]]]
+    ] = contextvars.ContextVar("adjacent_parse_cache", default=None)
+
     def __init__(
         self,
         parser_left: Parser[T1],
@@ -470,10 +475,19 @@ class Adjacent(Parser[tuple[T1, T2]]):
         self.right_priority = right_priority
 
     def parse(self, args: list[str]) -> ParseResult[tuple[T1, T2]]:
+        """Search adjacent matches, reusing speculative results inside a sequence."""
+        cache = self._parse_cache.get()
+        key = (self, tuple(args)) if cache is not None else None
+        if cache is not None and key is not None and key in cache:
+            return cast(ParseResult[tuple[T1, T2]], cache[key])
+
         def right_priority() -> ParseResult[tuple[T1, T2]]:
+            """Prefer complete right suffixes, then allow partial right consumption."""
+
             def try_with_right(
                 sub_args: list[str], require_max_len: bool
             ) -> ParseResult[tuple[T1, T2]]:
+                """Shrink the input when no right suffix leaves a complete left parse."""
                 # For all sequences of length [0..len(args)[ find the longest one that can be parsed
                 # sequentially by the two parsers provided. O(n^2).
                 while True:
@@ -523,35 +537,34 @@ class Adjacent(Parser[tuple[T1, T2]]):
             )
 
         def left_priority() -> ParseResult[tuple[T1, T2]]:
+            """Prefer complete left prefixes, then allow partial left consumption."""
+
             def try_with_left(
                 sub_args: list[str], require_max_len: bool
             ) -> ParseResult[tuple[T1, T2]]:
-                while True:
-                    found_max_len = None
-                    left = None
-                    for max_len in range(len(sub_args), -1, -1):
-                        left = self.parser_left.parse(sub_args[0:max_len])
-                        if isinstance(left, ParseOK) and (
-                            not require_max_len or left.processed == max_len
-                        ):
-                            found_max_len = left.processed
-                            break
-
-                    if found_max_len is not None:
-                        assert isinstance(left, ParseOK)
-                        right = self.parser_right.parse(sub_args[found_max_len:])
-                        if isinstance(right, ParseFail):
-                            return right.forward(
-                                processed=found_max_len,
-                                message="while parsing right argument",
-                            )
-                        assert isinstance(right, ParseOK)
+                """Search each prefix once; shorter inputs cannot add new prefixes."""
+                found_max_len = None
+                left = None
+                for max_len in range(len(sub_args), -1, -1):
+                    left = self.parser_left.parse(sub_args[0:max_len])
+                    if isinstance(left, ParseOK) and (
+                        not require_max_len or left.processed == max_len
+                    ):
+                        found_max_len = left.processed
                         break
-                    if sub_args == []:
-                        return ParseFail(
-                            f"No adjacent arguments parsed completely", processed=0
-                        )
-                    sub_args = sub_args[0 : len(sub_args) - 1]
+
+                if found_max_len is None:
+                    return ParseFail(
+                        "No adjacent arguments parsed completely", processed=0
+                    )
+                assert isinstance(left, ParseOK)
+                right = self.parser_right.parse(sub_args[found_max_len:])
+                if isinstance(right, ParseFail):
+                    return right.forward(
+                        processed=found_max_len,
+                        message="while parsing right argument",
+                    )
+                assert isinstance(right, ParseOK)
                 return ParseOK(
                     (left.value, right.value),
                     processed=left.processed + right.processed,
@@ -561,10 +574,10 @@ class Adjacent(Parser[tuple[T1, T2]]):
                 [lambda: try_with_left(args, True), lambda: try_with_left(args, False)]
             )
 
-        if self.right_priority:
-            return right_priority()
-        else:
-            return left_priority()
+        result = right_priority() if self.right_priority else left_priority()
+        if cache is not None and key is not None:
+            cache[key] = result
+        return result
 
 
 class IfThen(Parser[T]):
@@ -602,6 +615,75 @@ class Remaining(Parser[T]):
                 )
         else:
             return result
+
+
+class Separated(Parser[list[T]]):
+    """Parse a complete, nonempty sequence using grammar-validated boundaries.
+
+    A complete single-item interpretation wins, including separator tokens in
+    arguments. Otherwise prefer the longest complete first item whose remainder
+    also parses. Failures retain the furthest original-input offset; ties prefer
+    the unsplit interpretation. The item parser must be safe for speculative
+    parsing and stable during one call: returned callbacks are not invoked, but
+    parsing can happen repeatedly. Adjacent results are cached only for this call,
+    including nested grammar searches, and are never reused across invocations.
+    """
+
+    def __init__(self, parser: Parser[T], separator: str) -> None:
+        """Require complete items and match a separator token case-insensitively."""
+        self.parser = Remaining(parser)
+        self.separator = separator.lower()
+
+    def parse(self, args: list[str]) -> ParseResult[list[T]]:
+        """Scope grammar memoization to this invocation, restoring it even on errors."""
+        token = Adjacent._parse_cache.set({})
+        try:
+            return self._parse(args)
+        finally:
+            Adjacent._parse_cache.reset(token)
+
+    def _parse(self, args: list[str]) -> ParseResult[list[T]]:
+        """Validate every item, memoizing suffixes without recursive stack growth."""
+        if not args:
+            return ParseFail("Expected a nonempty sequence item", processed=0)
+        whole = self.parser.parse(args[:])
+        if isinstance(whole, ParseOK):
+            return ParseOK([whole.value], processed=len(args))
+        assert isinstance(whole, ParseFail)
+        boundaries = [
+            index for index, arg in enumerate(args) if arg.lower() == self.separator
+        ]
+        suffixes: dict[int, ParseResult[list[T]]] = {}
+        for start in reversed([0] + [index + 1 for index in boundaries]):
+            if start == len(args):
+                suffixes[start] = ParseFail(
+                    "Expected a nonempty sequence item", processed=start
+                )
+                continue
+            item = whole if start == 0 else self.parser.parse(args[start:])
+            if isinstance(item, ParseOK):
+                suffixes[start] = ParseOK([item.value], processed=len(args) - start)
+                continue
+            assert isinstance(item, ParseFail)
+            best = item.forward(processed=start)
+            for end in reversed(boundaries):
+                if end <= start:
+                    continue
+                left = self.parser.parse(args[start:end])
+                if not isinstance(left, ParseOK):
+                    continue
+                right = suffixes[end + 1]
+                if isinstance(right, ParseOK):
+                    suffixes[start] = ParseOK(
+                        [left.value] + right.value, processed=len(args) - start
+                    )
+                    break
+                assert isinstance(right, ParseFail)
+                if right.processed > best.processed:
+                    best = right
+            else:
+                suffixes[start] = best
+        return suffixes[0]
 
 
 class Concat(Parser[str]):
