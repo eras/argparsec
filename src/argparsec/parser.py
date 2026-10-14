@@ -68,9 +68,7 @@ class ParseFail[Parsed](ParseResult[Parsed]):
         self.message = message
         self.processed = processed
 
-    def forward(
-        self, processed: int, message: str | None = None
-    ) -> "ParseFail[Any]":
+    def forward(self, processed: int, message: str | None = None) -> "ParseFail[Any]":
         return ParseFail(
             message=self.message + ("" if message is None else " " + message),
             processed=self.processed + processed,
@@ -1164,9 +1162,7 @@ class Date(Parser[datetime.date]):
             assert isinstance(result, ParseOK)
             today = self.today if self.today else datetime.date.today()
             if result.value.yyyymmdd is not None:
-                yyyymmdd: tuple[str | None, ...] = assert_some(
-                    result.value.yyyymmdd
-                )
+                yyyymmdd: tuple[str | None, ...] = assert_some(result.value.yyyymmdd)
                 try:
                     return ParseOK(
                         datetime.date(
@@ -1192,9 +1188,7 @@ class Date(Parser[datetime.date]):
 class _TimeWrapped:
     hhmm: tuple[str | None, ...] | None = None
     hm: tuple[str | None, ...] | None = None
-    int_h_m: tuple[SuffixInfo[int] | None, SuffixInfo[int] | None] | None = (
-        None
-    )
+    int_h_m: tuple[SuffixInfo[int] | None, SuffixInfo[int] | None] | None = None
 
 
 class Time(Parser[datetime.datetime]):
