@@ -6,7 +6,9 @@ from dataclasses import dataclass
 
 from abc import ABC, abstractmethod
 
-from typing import Callable, Coroutine, Any, TypeVar, Generic, Awaitable
+from typing import Any, TypeVar, Generic
+
+from collections.abc import Callable, Coroutine, Awaitable
 
 from .parser import Parser, ParseResult, ParseOK, ParseFail
 

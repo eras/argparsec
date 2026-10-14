@@ -3,17 +3,13 @@ import datetime
 import contextvars
 from abc import ABC, abstractmethod
 from typing import (
-    Callable,
-    Coroutine,
     Any,
     TypeVar,
     Generic,
-    Optional,
-    Mapping,
-    Union,
+    Protocol,
     cast,
 )
-from typing_extensions import Protocol
+from collections.abc import Callable, Coroutine, Mapping
 from enum import Enum
 from dataclasses import dataclass
 
@@ -84,7 +80,7 @@ class ParseFail(ParseResult[Parsed]):
         self.processed = processed
 
     def forward(
-        self, processed: int, message: Optional[str] = None
+        self, processed: int, message: str | None = None
     ) -> "ParseFail[Any]":
         return ParseFail(
             message=self.message + ("" if message is None else " " + message),
@@ -216,13 +212,13 @@ class Keyword(Parser[T]):
             return ParseFail(f"Expected {self.keyword}", processed=0)
 
 
-class Regex(Parser[tuple[Optional[str], ...]]):
+class Regex(Parser[tuple[str | None, ...]]):
     regex: "re.Pattern[str]"
 
     def __init__(self, regex: str, flags: int = 0) -> None:
         self.regex = re.compile(regex, flags=flags)
 
-    def parse(self, args: list[str]) -> ParseResult[tuple[Optional[str], ...]]:
+    def parse(self, args: list[str]) -> ParseResult[tuple[str | None, ...]]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         match = re.match(self.regex, args[0])
@@ -281,13 +277,13 @@ class Bool(Parser[bool]):
             return ParseFail(f'Invalid argument "{args[0]}" for boolean', processed=0)
 
 
-class Optional_(Parser[Optional[T]]):
+class Optional_(Parser[T | None]):
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
         self.parser = parser
 
-    def parse(self, args: list[str]) -> ParseResult[Optional[T]]:
+    def parse(self, args: list[str]) -> ParseResult[T | None]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             return ParseOK(result.value, processed=result.processed)
@@ -295,13 +291,13 @@ class Optional_(Parser[Optional[T]]):
             return ParseOK(None, processed=0)
 
 
-class ValidOrMissing(Parser[Optional[T]]):
+class ValidOrMissing(Parser[T | None]):
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
         self.parser = parser
 
-    def parse(self, args: list[str]) -> ParseResult[Optional[T]]:
+    def parse(self, args: list[str]) -> ParseResult[T | None]:
         if len(args) == 0:
             return ParseOK(None, processed=0)
         else:
@@ -473,7 +469,7 @@ class Adjacent(Parser[tuple[T1, T2]]):
     right_priority: bool
 
     _parse_cache: contextvars.ContextVar[
-        Optional[dict[tuple[object, tuple[str, ...]], ParseResult[Any]]]
+        dict[tuple[object, tuple[str, ...]], ParseResult[Any]] | None
     ] = contextvars.ContextVar("adjacent_parse_cache", default=None)
 
     def __init__(
@@ -557,7 +553,7 @@ class Adjacent(Parser[tuple[T1, T2]]):
                 """Search each prefix once; shorter inputs cannot add new prefixes."""
                 found_max_len = None
                 left = None
-                longest_fail: Optional[ParseFail[T1]] = None
+                longest_fail: ParseFail[T1] | None = None
                 for max_len in range(len(sub_args), -1, -1):
                     left = self.parser_left.parse(sub_args[0:max_len])
                     if isinstance(left, ParseFail) and left.processed > 0:
@@ -770,7 +766,7 @@ class OneOf(Parser[T]):
     def parse(self, args: list[str]) -> ParseResult[T]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
-        longest_fail: Optional[ParseFail[T]] = None
+        longest_fail: ParseFail[T] | None = None
         for parser in self.parsers:
             result = parser.parse(args)
             if isinstance(result, ParseOK):
@@ -821,7 +817,7 @@ class OneOfStringsIndex(Parser[int]):
     def parse(self, args: list[str]) -> ParseResult[int]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
-        index: Optional[int] = None
+        index: int | None = None
         try:
             index = [str.lower() for str in self.strings].index(args[0].lower())
         except ValueError:
@@ -887,7 +883,7 @@ class Conditional(Parser[T]):
             return ParseFail("Condition is false", processed=0)
 
 
-class SomeOf(Parser[tuple[Optional[T], ...]]):
+class SomeOf(Parser[tuple[T | None, ...]]):
     """Parses a sequence of values with given parsers, but the order of the values can be anything
     and they can also be omitted in part or completely.
 
@@ -899,11 +895,11 @@ class SomeOf(Parser[tuple[Optional[T], ...]]):
         assert parsers, "VldSeq: expected at least one parser"
         self.parsers = parsers
 
-    def parse(self, args: list[str]) -> ParseResult[tuple[Optional[T], ...]]:
+    def parse(self, args: list[str]) -> ParseResult[tuple[T | None, ...]]:
         parsers = list(enumerate(self.parsers))
         total_processed = 0
         any_matched = True
-        results: list[Optional[T]] = len(parsers) * [cast(Optional[T], None)]
+        results: list[T | None] = len(parsers) * [cast(T | None, None)]
         while any_matched:
             any_matched = False
             next_parsers: list[tuple[int, Parser[T]]] = []
@@ -936,7 +932,7 @@ class _SomeOfGeneral(Parser[T]):
         return cast(ParseResult[Any], result)
 
 
-class SomeOf2(_SomeOfGeneral[tuple[Optional[T1], Optional[T2]]]):
+class SomeOf2(_SomeOfGeneral[tuple[T1 | None, T2 | None]]):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
 
     def __init__(self, parser1: Parser[T1], parser2: Parser[T2]) -> None:
@@ -944,7 +940,7 @@ class SomeOf2(_SomeOfGeneral[tuple[Optional[T1], Optional[T2]]]):
         self.parsers = SomeOf(parser1.unknown(), parser2.unknown()).unknown()
 
 
-class SomeOf3(_SomeOfGeneral[tuple[Optional[T1], Optional[T2], Optional[T3]]]):
+class SomeOf3(_SomeOfGeneral[tuple[T1 | None, T2 | None, T3 | None]]):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
 
     def __init__(
@@ -954,7 +950,7 @@ class SomeOf3(_SomeOfGeneral[tuple[Optional[T1], Optional[T2], Optional[T3]]]):
 
 
 class SomeOf4(
-    _SomeOfGeneral[tuple[Optional[T1], Optional[T2], Optional[T3], Optional[T4]]]
+    _SomeOfGeneral[tuple[T1 | None, T2 | None, T3 | None, T4 | None]]
 ):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
 
@@ -1024,10 +1020,10 @@ class SuffixInfo(Generic[T]):
 
 @dataclass
 class _SuffixWrapped(Generic[T]):
-    internal: Optional[tuple[Optional[str], ...]] = None
+    internal: tuple[str | None, ...] | None = None
     """e.g. 42m"""
 
-    external: Optional[tuple[T, str]] = None
+    external: tuple[T, str] | None = None
     """e.g. 42 m"""
 
 
@@ -1060,7 +1056,7 @@ class GeneralSuffix(Parser[SuffixInfo[T]], ABC):
             )
 
     @abstractmethod
-    def of_internal(self, internal: tuple[Optional[str], ...]) -> SuffixInfo[T]: ...
+    def of_internal(self, internal: tuple[str | None, ...]) -> SuffixInfo[T]: ...
 
     def of_external(self, external: tuple[T, str]) -> SuffixInfo[T]:
         return SuffixInfo(value=external[0], suffix=external[1])
@@ -1079,7 +1075,7 @@ class PosIntSuffix(GeneralSuffix[int]):
             parser=Int(),
         )
 
-    def of_internal(self, internal: tuple[Optional[str], ...]) -> SuffixInfo[int]:
+    def of_internal(self, internal: tuple[str | None, ...]) -> SuffixInfo[int]:
         return SuffixInfo(
             value=int(assert_some(internal[0])), suffix=assert_some(internal[1])
         )
@@ -1094,7 +1090,7 @@ class PosFloatSuffix(GeneralSuffix[float]):
             parser=Float(),
         )
 
-    def of_internal(self, internal: tuple[Optional[str], ...]) -> SuffixInfo[float]:
+    def of_internal(self, internal: tuple[str | None, ...]) -> SuffixInfo[float]:
         return SuffixInfo(
             value=float(assert_some(internal[0])), suffix=assert_some(internal[1])
         )
@@ -1125,15 +1121,15 @@ class Meters(Parser[float]):
 
 @dataclass
 class _DateWrapped:
-    yyyymmdd: Optional[tuple[Optional[str], ...]] = None
-    today_tomorrow: Optional[tuple[Optional[str], ...]] = None
+    yyyymmdd: tuple[str | None, ...] | None = None
+    today_tomorrow: tuple[str | None, ...] | None = None
 
 
 class Date(Parser[datetime.date]):
     regex: Parser[_DateWrapped]
-    today: Optional[datetime.date]  # future use to support relative dates
+    today: datetime.date | None  # future use to support relative dates
 
-    def __init__(self, today: Optional[datetime.date] = None) -> None:
+    def __init__(self, today: datetime.date | None = None) -> None:
         self.regex = OneOf(
             Map(
                 map=lambda x: _DateWrapped(yyyymmdd=x),
@@ -1156,7 +1152,7 @@ class Date(Parser[datetime.date]):
             assert isinstance(result, ParseOK)
             today = self.today if self.today else datetime.date.today()
             if result.value.yyyymmdd is not None:
-                yyyymmdd: tuple[Union[str, None], ...] = assert_some(
+                yyyymmdd: tuple[str | None, ...] = assert_some(
                     result.value.yyyymmdd
                 )
                 try:
@@ -1182,18 +1178,18 @@ class Date(Parser[datetime.date]):
 
 @dataclass
 class _TimeWrapped:
-    hhmm: Optional[tuple[Optional[str], ...]] = None
-    hm: Optional[tuple[Optional[str], ...]] = None
-    int_h_m: Optional[tuple[Optional[SuffixInfo[int]], Optional[SuffixInfo[int]]]] = (
+    hhmm: tuple[str | None, ...] | None = None
+    hm: tuple[str | None, ...] | None = None
+    int_h_m: tuple[SuffixInfo[int] | None, SuffixInfo[int] | None] | None = (
         None
     )
 
 
 class Time(Parser[datetime.datetime]):
     regex: Parser[_TimeWrapped]
-    now: Optional[datetime.datetime]
+    now: datetime.datetime | None
 
-    def __init__(self, now: Optional[datetime.datetime] = None) -> None:
+    def __init__(self, now: datetime.datetime | None = None) -> None:
         self.regex = OneOf(
             Map(
                 map=lambda x: _TimeWrapped(hhmm=x),
@@ -1294,15 +1290,15 @@ class Weekday(Parser[int]):
 
 @dataclass
 class _DateWeekdayWrapped:
-    date: Optional[datetime.date] = None
-    weekday: Optional[int] = None
+    date: datetime.date | None = None
+    weekday: int | None = None
 
 
 class DateTime(Parser[datetime.datetime]):
-    now: Optional[datetime.datetime]
+    now: datetime.datetime | None
     parser: Adjacent[_DateWeekdayWrapped, tuple[int, int]]
 
-    def __init__(self, now: Optional[datetime.datetime] = None) -> None:
+    def __init__(self, now: datetime.datetime | None = None) -> None:
         self.now = now
         today = map_optional(now, lambda x: x.date())
         self.parser = Adjacent(
@@ -1340,7 +1336,7 @@ class DateTime(Parser[datetime.datetime]):
 class TimeOrDateTime(Parser[datetime.datetime]):
     parser: Parser[datetime.datetime]
 
-    def __init__(self, now: Optional[datetime.datetime] = None) -> None:
+    def __init__(self, now: datetime.datetime | None = None) -> None:
         self.parser = OneOf(
             Labeled("datetime", DateTime(now=now)), Labeled("time", Time(now=now))
         )

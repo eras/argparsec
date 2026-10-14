@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 import datetime
-from typing import TypeVar, Optional
+from typing import TypeVar
 from enum import Enum
 
 import argparsec.parser as p
