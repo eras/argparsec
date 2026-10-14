@@ -101,13 +101,13 @@ class TestParser(unittest.TestCase):
 
     def test_optional(self) -> None:
         with self.subTest():
-            self.assertEqual(p.Optional_(p.Bool()).parse([]),
+            self.assertEqual(p.Optional(p.Bool()).parse([]),
                              p.ParseOK(None, processed=0))
         with self.subTest():
-            self.assertEqual(p.Optional_(p.Bool()).parse(["moi"]),
+            self.assertEqual(p.Optional(p.Bool()).parse(["moi"]),
                              p.ParseOK(None, processed=0))
         with self.subTest():
-            self.assertEqual(p.Optional_(p.Bool()).parse(["true"]),
+            self.assertEqual(p.Optional(p.Bool()).parse(["true"]),
                              p.ParseOK(True, processed=1))
 
         with self.subTest():
@@ -213,7 +213,7 @@ class TestParser(unittest.TestCase):
                              p.ParseOK(("0 1", "2"), processed=3))
         with self.subTest():
             self.assertEqual(p.Adjacent(p.Remaining(p.Concat()),
-                                        p.Remaining(p.Optional_(p.AnyStr())),
+                                        p.Remaining(p.Optional(p.AnyStr())),
                                         right_priority=True).parse(["0", "1", "2"]),
                              p.ParseOK(("0 1", "2"), processed=3))
         with self.subTest():
@@ -815,32 +815,32 @@ class TestParser(unittest.TestCase):
 
     def test_rest_as_list(self) -> None:
         with self.subTest():
-            self.assertEqual(p.List_(p.AnyStr()).parse([]),
+            self.assertEqual(p.List(p.AnyStr()).parse([]),
                              p.ParseOK([], processed=0))
 
         with self.subTest():
-            self.assertEqual(p.List_(p.AnyStr()).parse(["hello"]),
+            self.assertEqual(p.List(p.AnyStr()).parse(["hello"]),
                              p.ParseOK(["hello"], processed=1))
 
         with self.subTest():
-            self.assertEqual(p.List_(p.Int()).parse(["1", "2"]),
+            self.assertEqual(p.List(p.Int()).parse(["1", "2"]),
                              p.ParseOK([1, 2], processed=2))
 
         with self.subTest():
-            self.assertEqual(p.List_(p.Adjacent(p.Int(), p.Int())).parse(["1", "2"]),
+            self.assertEqual(p.List(p.Adjacent(p.Int(), p.Int())).parse(["1", "2"]),
                              p.ParseOK([(1, 2)], processed=2))
 
         with self.subTest():
-            self.assertEqual(p.List_(p.Adjacent(p.Int(), p.Int())).parse(["1", "2", "3"]),
+            self.assertEqual(p.List(p.Adjacent(p.Int(), p.Int())).parse(["1", "2", "3"]),
                              p.ParseOK([(1, 2)], processed=2))
 
 
         with self.subTest():
-            self.assertEqual(p.List_(p.Adjacent(p.Int(), p.Int())).parse(["1", "2", "3", "moi"]),
+            self.assertEqual(p.List(p.Adjacent(p.Int(), p.Int())).parse(["1", "2", "3", "moi"]),
                              p.ParseOK([(1, 2)], processed=2))
 
         with self.subTest():
-            self.assertEqual(p.List_(p.Adjacent(p.Int(), p.Int())).parse(["1", "2", "3", "4"]),
+            self.assertEqual(p.List(p.Adjacent(p.Int(), p.Int())).parse(["1", "2", "3", "4"]),
                              p.ParseOK([(1, 2), (3, 4)], processed=4))
 
     def test_meters(self) -> None:

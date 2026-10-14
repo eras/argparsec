@@ -100,8 +100,8 @@ class TestParserContracts(unittest.TestCase):
     def test_one_of_accepts_empty_input_when_an_alternative_does(self) -> None:
         """A choice delegates empty-input acceptance to its alternatives."""
         self.assertEqual(p.OneOf(p.Empty()).parse([]), p.ParseOK((), 0))
-        self.assertEqual(p.OneOf(p.Optional_(p.Int())).parse([]), p.ParseOK(None, 0))
-        self.assertEqual(p.OneOf(p.List_(p.Int())).parse([]), p.ParseOK([], 0))
+        self.assertEqual(p.OneOf(p.Optional(p.Int())).parse([]), p.ParseOK(None, 0))
+        self.assertEqual(p.OneOf(p.List(p.Int())).parse([]), p.ParseOK([], 0))
 
     def test_one_of_tries_later_alternatives_on_empty_input(self) -> None:
         """A failed required parser must not hide a later optional alternative."""
@@ -111,7 +111,7 @@ class TestParserContracts(unittest.TestCase):
 
     def test_one_of_preserves_first_success_even_without_consumption(self) -> None:
         """An optional first alternative wins on both empty and invalid input."""
-        parser = p.OneOf(p.Optional_(p.Int()).any(), p.AnyStr().any())
+        parser = p.OneOf(p.Optional(p.Int()).any(), p.AnyStr().any())
         for args in [[], ["invalid"]]:
             with self.subTest(args=args):
                 self.assertEqual(parser.parse(args), p.ParseOK(None, 0))
@@ -127,17 +127,17 @@ class TestParserContracts(unittest.TestCase):
 
     def test_optional_preserves_empty_success_and_discards_failures(self) -> None:
         """Try empty input and turn even partially consumed failures into absence."""
-        self.assertEqual(p.Optional_(p.Empty()).parse([]), p.ParseOK((), 0))
-        self.assertEqual(p.Optional_(p.Int()).parse([]), p.ParseOK(None, 0))
+        self.assertEqual(p.Optional(p.Empty()).parse([]), p.ParseOK((), 0))
+        self.assertEqual(p.Optional(p.Int()).parse([]), p.ParseOK(None, 0))
         self.assertEqual(
-            p.Optional_(p.Keyword("value", p.Int())).parse(["value", "invalid"]),
+            p.Optional(p.Keyword("value", p.Int())).parse(["value", "invalid"]),
             p.ParseOK(None, 0),
         )
 
     def test_list_accepts_empty_input_and_stops_before_failure(self) -> None:
         """Return parsed prefixes, discarding consumption reported by a failed item."""
-        self.assertEqual(p.List_(p.Empty()).parse([]), p.ParseOK([], 0))
-        parser = p.List_(p.Keyword("value", p.Int()))
+        self.assertEqual(p.List(p.Empty()).parse([]), p.ParseOK([], 0))
+        parser = p.List(p.Keyword("value", p.Int()))
         self.assertEqual(parser.parse(["value", "invalid"]), p.ParseOK([], 0))
         self.assertEqual(
             parser.parse(["value", "1", "value", "invalid"]), p.ParseOK([1], 2)
@@ -145,7 +145,7 @@ class TestParserContracts(unittest.TestCase):
 
     def test_list_rejects_zero_consumption_success_on_nonempty_input(self) -> None:
         """A successful empty item must fail rather than permit an infinite loop."""
-        result = p.List_(p.Optional_(p.Int())).parse(["invalid"])
+        result = p.List(p.Optional(p.Int())).parse(["invalid"])
         self.assertIsInstance(result, p.ParseFail)
         assert isinstance(result, p.ParseFail)
         self.assertEqual(result.processed, 0)

@@ -90,7 +90,7 @@ class TestSeparated(unittest.TestCase):
                 self.assertEqual(result.processed, offset)
         self.assertIsInstance(p.Separated(p.Empty(), "and").parse([]), p.ParseFail)
         self.assertIsInstance(
-            p.Separated(p.Optional_(p.Bool()), "and").parse(["and"]), p.ParseFail
+            p.Separated(p.Optional(p.Bool()), "and").parse(["and"]), p.ParseFail
         )
 
     def test_preserve_failure_details(self) -> None:

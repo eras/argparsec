@@ -139,7 +139,7 @@ class RestAsStr(Parser[str]):
         return ParseOK(" ".join(args), processed=len(args))
 
 
-class List_[T](Parser[list[T]]):
+class List[T](Parser[list[T]]):
     """Parse zero or more items, succeeding with an empty list on empty input.
 
     Empty input does not invoke the item parser. On nonempty input, stop at
@@ -281,7 +281,7 @@ class Bool(Parser[bool]):
             return ParseFail(f'Invalid argument "{args[0]}" for boolean', processed=0)
 
 
-class Optional_[T](Parser[T | None]):
+class Optional[T](Parser[T | None]):
     """Try the parser even on empty input and preserve any successful result.
 
     Any parse failure becomes ParseOK(None, processed=0), even when the
@@ -1214,7 +1214,7 @@ class Time(Parser[datetime.datetime]):
             Map(
                 map=lambda x: _TimeWrapped(int_h_m=x),
                 parser=Adjacent(
-                    Optional_(PosIntSuffix(["h"])), Optional_(PosIntSuffix(["m"]))
+                    Optional(PosIntSuffix(["h"])), Optional(PosIntSuffix(["m"]))
                 ),
             ),
         )
