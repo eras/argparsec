@@ -119,14 +119,17 @@ class AnyStr(Parser[str]):
         return ParseOK(args[0], processed=1)
 
 
-# Handles slack mrkdwn links
 class Url(Parser[str]):
+    """Normalize Slack mrkdwn links."""
+
     def parse(self, args: list[str]) -> ParseResult[str]:
+        """Consume one token, stripping angle brackets and decoding escaped ampersands."""
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
-        if args[0].startswith("<") and args[0].endswith(">"):
-            args[0] = args[0][1:-1].replace("&amp;", "&")
-        return ParseOK(args[0], processed=1)
+        value = args[0]
+        if value.startswith("<") and value.endswith(">"):
+            value = value[1:-1].replace("&amp;", "&")
+        return ParseOK(value, processed=1)
 
 
 class RestAsStr(Parser[str]):
@@ -137,6 +140,14 @@ class RestAsStr(Parser[str]):
 
 
 class List_[T](Parser[list[T]]):
+    """Parse zero or more items, succeeding with an empty list on empty input.
+
+    Empty input does not invoke the item parser. On nonempty input, stop at
+    the first failed item and discard that item's failure and consumption.
+    A successful item consuming zero tokens instead fails the entire list
+    with processed=0, preventing an infinite loop.
+    """
+
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
@@ -220,11 +231,13 @@ class Regex(Parser[tuple[str | None, ...]]):
 
 
 class Int(Parser[int]):
+    """Parse one complete unsigned integer token, not a numeric prefix."""
+
     parser: Regex
 
     def __init__(self) -> None:
         super().__init__()
-        self.parser = Regex(r"([0-9]+)")
+        self.parser = Regex(r"([0-9]+)\Z")
 
     def parse(self, args: list[str]) -> ParseResult[int]:
         result = self.parser.parse(args)
@@ -237,11 +250,13 @@ class Int(Parser[int]):
 
 
 class Float(Parser[float]):
+    """Parse one complete unsigned integer or decimal token with a literal dot."""
+
     parser: Regex
 
     def __init__(self) -> None:
         super().__init__()
-        self.parser = Regex(r"([0-9]+(?:.[0-9]+)?)")
+        self.parser = Regex(r"([0-9]+(?:\.[0-9]+)?)\Z")
 
     def parse(self, args: list[str]) -> ParseResult[float]:
         result = self.parser.parse(args)
@@ -267,6 +282,13 @@ class Bool(Parser[bool]):
 
 
 class Optional_[T](Parser[T | None]):
+    """Try the parser even on empty input and preserve any successful result.
+
+    Any parse failure becomes ParseOK(None, processed=0), even when the
+    underlying failure reports consumed tokens. Use ValidOrMissing when
+    present but invalid input should remain a failure.
+    """
+
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
@@ -744,6 +766,14 @@ class Labeled[T](Parser[T]):
 
 
 class OneOf[T](Parser[T]):
+    """Return the first successful alternative, trying them in declaration order.
+
+    Empty input fails immediately without trying alternatives, even those
+    that accept empty input. If all alternatives fail, retain the furthest
+    failure (first on ties); zero-progress failures use the option labels
+    when available, rather than the individual failure messages.
+    """
+
     parsers: tuple[Parser[T], ...]
 
     def __init__(self, *parsers: Parser[T]) -> None:
@@ -1068,7 +1098,7 @@ class PosFloatSuffix(GeneralSuffix[float]):
     def __init__(self, suffixes: list[str]) -> None:
         suffixes_re = re_of_alternatives(suffixes)
         super().__init__(
-            regex=r"^(?:([0-9]{1,4}(?:.[0-9]+)?)(" + suffixes_re + r"))$",
+            regex=r"^(?:([0-9]{1,4}(?:\.[0-9]+)?)(" + suffixes_re + r"))\Z",
             suffixes=suffixes,
             parser=Float(),
         )

@@ -885,9 +885,9 @@ class TestParser(unittest.TestCase):
                              p.ParseFail("Expected one of m, km while parsing right argument", processed=1))
 
         with self.subTest():
-            # not the best error message..
+            # Reject the whole token rather than consuming its numeric prefix.
             self.assertEqual(p.Meters().parse(["1.0mm"]),
-                             p.ParseFail("No argument provided while parsing right argument", processed=1))
+                             p.ParseFail("Invalid value", processed=0))
 
         with self.subTest():
             self.assertEqual(p.Meters().parse(["1.0", "m", "z"]),
