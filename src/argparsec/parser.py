@@ -1,3 +1,5 @@
+"""Compose typed parsers over complete argument tokens."""
+
 import re
 import datetime
 import contextvars
@@ -7,7 +9,7 @@ from typing import (
     Protocol,
     cast,
 )
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Mapping
 from enum import Enum
 from dataclasses import dataclass
 

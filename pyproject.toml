@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argparsec"
+version = "0.1.0"
+description = "Typed parser combinators for lists of argument tokens"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE.MIT"]
+dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = ["black>=24", "build>=1.2", "mypy>=1.12"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+argparsec = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+
+[tool.black]
+target-version = ["py312"]
