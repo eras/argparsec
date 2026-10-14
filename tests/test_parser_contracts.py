@@ -97,10 +97,32 @@ class TestParserContracts(unittest.TestCase):
         self.assertEqual(parser.parse(args), p.ParseOK(token, 1))
         self.assertEqual(args, [token, "tail"])
 
-    def test_one_of_rejects_empty_input_before_trying_alternatives(self) -> None:
-        """Even an empty-accepting alternative is not tried without input."""
+    def test_one_of_accepts_empty_input_when_an_alternative_does(self) -> None:
+        """A choice delegates empty-input acceptance to its alternatives."""
+        self.assertEqual(p.OneOf(p.Empty()).parse([]), p.ParseOK((), 0))
+        self.assertEqual(p.OneOf(p.Optional_(p.Int())).parse([]), p.ParseOK(None, 0))
+        self.assertEqual(p.OneOf(p.List_(p.Int())).parse([]), p.ParseOK([], 0))
+
+    def test_one_of_tries_later_alternatives_on_empty_input(self) -> None:
+        """A failed required parser must not hide a later optional alternative."""
         self.assertEqual(
-            p.OneOf(p.Empty()).parse([]), p.ParseFail("No argument provided", 0)
+            p.OneOf(p.Int().any(), p.Empty().any()).parse([]), p.ParseOK((), 0)
+        )
+
+    def test_one_of_preserves_first_success_even_without_consumption(self) -> None:
+        """An optional first alternative wins on both empty and invalid input."""
+        parser = p.OneOf(p.Optional_(p.Int()).any(), p.AnyStr().any())
+        for args in [[], ["invalid"]]:
+            with self.subTest(args=args):
+                self.assertEqual(parser.parse(args), p.ParseOK(None, 0))
+        self.assertEqual(parser.parse(["123"]), p.ParseOK(123, 1))
+
+    def test_one_of_rejects_empty_input_when_all_alternatives_do(self) -> None:
+        """Required alternatives retain ordinary choice failure diagnostics."""
+        self.assertEqual(p.OneOf(p.Int()).parse([]), p.ParseFail("Invalid value", 0))
+        self.assertEqual(
+            p.OneOf(p.Labeled("integer", p.Int())).parse([]),
+            p.ParseFail("Invalid value (expected one of integer)", 0),
         )
 
     def test_optional_preserves_empty_success_and_discards_failures(self) -> None:

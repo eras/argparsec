@@ -709,7 +709,7 @@ class TestParser(unittest.TestCase):
         today = now.date()
         with self.subTest():
             self.assertEqual(p.TimeOrDateTime(now=now).parse([]),
-                             p.ParseFail("No argument provided", processed=0))
+                             p.ParseFail("Invalid value (expected one of datetime, time)", processed=0))
 
         with self.subTest():
             self.assertEqual(p.TimeOrDateTime(now=now).parse(["2022-03-03"]),
@@ -846,7 +846,7 @@ class TestParser(unittest.TestCase):
     def test_meters(self) -> None:
         with self.subTest():
             self.assertEqual(p.Meters().parse([]),
-                             p.ParseFail("No argument provided", processed=0))
+                             p.ParseFail("Invalid value", processed=0))
 
         with self.subTest():
             self.assertEqual(p.Meters().parse(["hei"]),

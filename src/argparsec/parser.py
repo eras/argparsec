@@ -768,10 +768,11 @@ class Labeled[T](Parser[T]):
 class OneOf[T](Parser[T]):
     """Return the first successful alternative, trying them in declaration order.
 
-    Empty input fails immediately without trying alternatives, even those
-    that accept empty input. If all alternatives fail, retain the furthest
-    failure (first on ties); zero-progress failures use the option labels
-    when available, rather than the individual failure messages.
+    Alternatives decide whether empty input is valid. A zero-consumption
+    success wins immediately, even if a later alternative could consume input.
+    If all alternatives fail, retain the furthest failure (first on ties);
+    zero-progress failures use the option labels when available, rather than
+    the individual failure messages.
     """
 
     parsers: tuple[Parser[T], ...]
@@ -780,8 +781,6 @@ class OneOf[T](Parser[T]):
         self.parsers = parsers
 
     def parse(self, args: list[str]) -> ParseResult[T]:
-        if len(args) == 0:
-            return ParseFail("No argument provided", processed=0)
         longest_fail: ParseFail[T] | None = None
         for parser in self.parsers:
             result = parser.parse(args)
