@@ -1,12 +1,9 @@
 import asyncio
 import unittest
 import datetime
-from typing import TypeVar
 from enum import Enum
 
 import argparsec.parser as p
-
-Result = TypeVar('Result', bound=object)
 
 class TestParser(unittest.TestCase):
     def __init__(self, method_name: str) -> None:
@@ -329,7 +326,7 @@ class TestParser(unittest.TestCase):
                                     p.Bool()).parse(["true"]),
                              p.ParseOK(p.Wrapped(True), processed=1))
 
-        class CustomWrapped(p.Wrapped[p.T]):
+        class CustomWrapped[T](p.Wrapped[T]):
             pass
 
         with self.subTest():

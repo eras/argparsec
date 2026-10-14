@@ -4,8 +4,6 @@ import contextvars
 from abc import ABC, abstractmethod
 from typing import (
     Any,
-    TypeVar,
-    Generic,
     Protocol,
     cast,
 )
@@ -22,16 +20,7 @@ class Unknown(ABC):
     pass
 
 
-Parsed = TypeVar("Parsed")
-T = TypeVar("T")
-T1 = TypeVar("T1")
-T2 = TypeVar("T2")
-T3 = TypeVar("T3")
-T4 = TypeVar("T4")
-TagT = TypeVar("TagT")
-
-
-class ParseResult(ABC, Generic[Parsed]):
+class ParseResult[Parsed](ABC):
     def __str__(self) -> str:
         return self.__repr__()
 
@@ -49,7 +38,7 @@ class ParseResult(ABC, Generic[Parsed]):
         return False
 
 
-class ParseOK(ParseResult[Parsed]):
+class ParseOK[Parsed](ParseResult[Parsed]):
     value: Parsed
     """Result of parsing"""
 
@@ -70,7 +59,7 @@ class ParseOK(ParseResult[Parsed]):
         return (self.value, self.processed) == (other.value, other.processed)
 
 
-class ParseFail(ParseResult[Parsed]):
+class ParseFail[Parsed](ParseResult[Parsed]):
     message: str
     processed: int
     """How many args from invocation.args were processed"""
@@ -94,7 +83,7 @@ class ParseFail(ParseResult[Parsed]):
         return self.message == other.message and self.processed == other.processed
 
 
-class Parser(ABC, Generic[Parsed]):
+class Parser[Parsed](ABC):
     def __call__(self, args: list[str]) -> ParseResult[Parsed]:
         return self.parse(args)
 
@@ -147,7 +136,7 @@ class RestAsStr(Parser[str]):
         return ParseOK(" ".join(args), processed=len(args))
 
 
-class List_(Parser[list[T]]):
+class List_[T](Parser[list[T]]):
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
@@ -186,7 +175,7 @@ class CaptureFixedStr(Parser[str]):
             return ParseFail(f"Expected {self.fixed_string}", processed=0)
 
 
-class Keyword(Parser[T]):
+class Keyword[T](Parser[T]):
     """Non-capturing fixed str + simple Adjacent rolled in one
 
     Less outputs (and types) than a combinator would be.
@@ -277,7 +266,7 @@ class Bool(Parser[bool]):
             return ParseFail(f'Invalid argument "{args[0]}" for boolean', processed=0)
 
 
-class Optional_(Parser[T | None]):
+class Optional_[T](Parser[T | None]):
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
@@ -291,7 +280,7 @@ class Optional_(Parser[T | None]):
             return ParseOK(None, processed=0)
 
 
-class ValidOrMissing(Parser[T | None]):
+class ValidOrMissing[T](Parser[T | None]):
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
@@ -309,15 +298,12 @@ class ValidOrMissing(Parser[T | None]):
                 return result.forward(processed=0)
 
 
-CT = TypeVar("CT", contravariant=True)
-
-
-class CallbackProtocol(Generic[CT], Protocol):
+class CallbackProtocol[CT](Protocol):
     def __call__(self, args: CT) -> None:
         pass
 
 
-class Callback(Generic[T], Parser[Callable[[], None]]):
+class Callback[T](Parser[Callable[[], None]]):
     parser: Parser[T]
 
     def __init__(self, callback: CallbackProtocol[T], parser: Parser[T]) -> None:
@@ -334,7 +320,7 @@ class Callback(Generic[T], Parser[Callable[[], None]]):
             return result.forward(processed=0)
 
 
-class Capture(Parser[tuple[list[str], T]]):
+class Capture[T](Parser[tuple[list[str], T]]):
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
@@ -366,7 +352,7 @@ class CaptureOnly(Parser[list[str]]):
             return result
 
 
-class Map(Generic[T1, T2], Parser[T2]):
+class Map[T1, T2](Parser[T2]):
     parser: Parser[T1]
     map: list[Callable[[T1], T2]]
 
@@ -395,7 +381,7 @@ class Map(Generic[T1, T2], Parser[T2]):
             return result.forward(processed=0)
 
 
-class MapDict(Map[list[tuple[TagT, T]], Mapping[TagT, T]]):
+class MapDict[TagT, T](Map[list[tuple[TagT, T]], Mapping[TagT, T]]):
     parser: Parser[list[tuple[TagT, T]]]
 
     def __init__(self, parser: Parser[list[tuple[TagT, T]]]) -> None:
@@ -405,7 +391,7 @@ class MapDict(Map[list[tuple[TagT, T]], Mapping[TagT, T]]):
         super().__init__(parser=parser, map=mapping)
 
 
-class Tag(Map[T, tuple[TagT, T]]):
+class Tag[T, TagT](Map[T, tuple[TagT, T]]):
     """Maps the result so that it is preceded by the given tag (in a 2-tuple)
 
     Can be useful with VldSomeOf for identifying which values came back.
@@ -422,14 +408,14 @@ class Tag(Map[T, tuple[TagT, T]]):
 
 
 @dataclass
-class Wrapped(Generic[T]):
+class Wrapped[T]:
     value: T
 
 
-Wrapper = Callable[[T], Wrapped[T]]
+type Wrapper[T] = Callable[[T], Wrapped[T]]
 
 
-class Wrap(Map[T, Wrapped[T]]):
+class Wrap[T](Map[T, Wrapped[T]]):
     """Maps the result so that it is preceded by the given tag (in a 2-tuple)
 
     Can be useful with VldSomeOf for identifying which values came back.
@@ -442,7 +428,7 @@ class Wrap(Map[T, Wrapped[T]]):
         super().__init__(parser=parser, map=mapping)
 
 
-def try_parses(parses: list[Callable[[], ParseResult[T]]]) -> ParseResult[T]:
+def try_parses[T](parses: list[Callable[[], ParseResult[T]]]) -> ParseResult[T]:
     value = None
     for parse in parses:
         value = parse()
@@ -452,7 +438,7 @@ def try_parses(parses: list[Callable[[], ParseResult[T]]]) -> ParseResult[T]:
     return value
 
 
-class Adjacent(Parser[tuple[T1, T2]]):
+class Adjacent[T1, T2](Parser[tuple[T1, T2]]):
     """Parses two values in the same order as the given parsers
 
     It tries all combinations and prefers longest matches. E.g.  for
@@ -597,7 +583,7 @@ class Adjacent(Parser[tuple[T1, T2]]):
         return result
 
 
-class IfThen(Parser[T]):
+class IfThen[T](Parser[T]):
     """Adjacent, but ignores the capture of the left-side parser"""
 
     parser: Adjacent[Any, T]
@@ -613,7 +599,7 @@ class IfThen(Parser[T]):
         return ParseOK(value=result.value[1], processed=result.processed)
 
 
-class Remaining(Parser[T]):
+class Remaining[T](Parser[T]):
     """Requires the underlying parser to parse all provided data, otherwise returns ParseFail"""
 
     parser: Parser[T]
@@ -634,7 +620,7 @@ class Remaining(Parser[T]):
             return result
 
 
-class Separated(Parser[list[T]]):
+class Separated[T](Parser[list[T]]):
     """Parse a complete, nonempty sequence using grammar-validated boundaries.
 
     A complete single-item interpretation wins, including separator tokens in
@@ -710,7 +696,7 @@ class Concat(Parser[str]):
         return ParseOK(" ".join(args), processed=len(args))
 
 
-class Seq(Parser[list[T]]):
+class Seq[T](Parser[list[T]]):
     """Parser a sequence of values in the same order as the given parsers
 
     This requires all the parsers to be of the same type. `Parser.any()` can be useful for
@@ -745,7 +731,7 @@ class Seq(Parser[list[T]]):
         return ParseOK(results, processed=total_processed)
 
 
-class Labeled(Parser[T]):
+class Labeled[T](Parser[T]):
     label: str
     parser: Parser[T]
 
@@ -757,7 +743,7 @@ class Labeled(Parser[T]):
         return self.parser(args)
 
 
-class OneOf(Parser[T]):
+class OneOf[T](Parser[T]):
     parsers: tuple[Parser[T], ...]
 
     def __init__(self, *parsers: Parser[T]) -> None:
@@ -829,10 +815,7 @@ class OneOfStringsIndex(Parser[int]):
             return ParseFail(f"Expected one of {valid_values}", processed=0)
 
 
-TEnum = TypeVar("TEnum", bound=Enum)
-
-
-class OneOfEnumValue(Generic[TEnum], Parser[TEnum]):
+class OneOfEnumValue[TEnum: Enum](Parser[TEnum]):
     enum: type[TEnum]
 
     def __init__(self, enum: type[TEnum]) -> None:
@@ -854,7 +837,7 @@ class OneOfEnumValue(Generic[TEnum], Parser[TEnum]):
             return ParseFail(f"Expected one of {valid_values}", processed=0)
 
 
-class Delayed(Parser[T]):
+class Delayed[T](Parser[T]):
     mk_validator: list[Callable[[], Parser[T]]]
 
     def __init__(self, parser: Callable[[], Parser[T]]):
@@ -868,7 +851,7 @@ class Condition(Protocol):
     def __call__(self) -> bool: ...
 
 
-class Conditional(Parser[T]):
+class Conditional[T](Parser[T]):
     parser: Parser[T]
     condition: Condition
 
@@ -883,7 +866,7 @@ class Conditional(Parser[T]):
             return ParseFail("Condition is false", processed=0)
 
 
-class SomeOf(Parser[tuple[T | None, ...]]):
+class SomeOf[T](Parser[tuple[T | None, ...]]):
     """Parses a sequence of values with given parsers, but the order of the values can be anything
     and they can also be omitted in part or completely.
 
@@ -916,7 +899,7 @@ class SomeOf(Parser[tuple[T | None, ...]]):
         return ParseOK(tuple(results), processed=total_processed)
 
 
-class _SomeOfGeneral(Parser[T]):
+class _SomeOfGeneral[T](Parser[T]):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
 
     parsers: Parser[Unknown]
@@ -932,7 +915,7 @@ class _SomeOfGeneral(Parser[T]):
         return cast(ParseResult[Any], result)
 
 
-class SomeOf2(_SomeOfGeneral[tuple[T1 | None, T2 | None]]):
+class SomeOf2[T1, T2](_SomeOfGeneral[tuple[T1 | None, T2 | None]]):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
 
     def __init__(self, parser1: Parser[T1], parser2: Parser[T2]) -> None:
@@ -940,7 +923,7 @@ class SomeOf2(_SomeOfGeneral[tuple[T1 | None, T2 | None]]):
         self.parsers = SomeOf(parser1.unknown(), parser2.unknown()).unknown()
 
 
-class SomeOf3(_SomeOfGeneral[tuple[T1 | None, T2 | None, T3 | None]]):
+class SomeOf3[T1, T2, T3](_SomeOfGeneral[tuple[T1 | None, T2 | None, T3 | None]]):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
 
     def __init__(
@@ -949,7 +932,7 @@ class SomeOf3(_SomeOfGeneral[tuple[T1 | None, T2 | None, T3 | None]]):
         super().__init__(parser1, parser2, parser3)
 
 
-class SomeOf4(
+class SomeOf4[T1, T2, T3, T4](
     _SomeOfGeneral[tuple[T1 | None, T2 | None, T3 | None, T4 | None]]
 ):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
@@ -1013,13 +996,13 @@ class HhMm(Parser[tuple[int, int]]):
 
 
 @dataclass
-class SuffixInfo(Generic[T]):
+class SuffixInfo[T]:
     value: T
     suffix: str  # enum would be cooler?
 
 
 @dataclass
-class _SuffixWrapped(Generic[T]):
+class _SuffixWrapped[T]:
     internal: tuple[str | None, ...] | None = None
     """e.g. 42m"""
 
@@ -1027,7 +1010,7 @@ class _SuffixWrapped(Generic[T]):
     """e.g. 42 m"""
 
 
-class GeneralSuffix(Parser[SuffixInfo[T]], ABC):
+class GeneralSuffix[T](Parser[SuffixInfo[T]], ABC):
     parser: Parser[_SuffixWrapped[T]]
 
     def __init__(self, regex: str, suffixes: list[str], parser: Parser[T]) -> None:

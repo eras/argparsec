@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from abc import ABC, abstractmethod
 
-from typing import Any, TypeVar, Generic
+from typing import Any
 
 from collections.abc import Callable, Coroutine, Awaitable
 
@@ -15,10 +15,6 @@ from .parser import Parser, ParseResult, ParseOK, ParseFail
 from .utils import assert_some
 
 logger = logging.getLogger(__name__)
-
-Context = TypeVar("Context")
-
-Parsed = TypeVar("Parsed")
 
 class CommandsException(Exception):
     pass
@@ -60,7 +56,7 @@ class Invocation:
         else:
             raise InvocationEmptyError()
 
-class Command(ABC, Generic[Context]):
+class Command[Context](ABC):
     name: str
     description: str
 
@@ -78,7 +74,7 @@ class Command(ABC, Generic[Context]):
         """Validate the command arguments without invoking it"""
         pass
 
-class Function(Command[Context], Generic[Context, Parsed]):
+class Function[Context, Parsed](Command[Context]):
     parser: Parser[Parsed]
     fn: list[Callable[[Context, Parsed], Coroutine[Any, Any, None]]]
 
@@ -103,7 +99,7 @@ class Function(Command[Context], Generic[Context, Parsed]):
     def parse(self, context: Context, invocation: Invocation) -> bool:
         return self.parser(invocation.args) is not None
 
-class CommandsParser(Generic[Context], Parser[Callable[[Context], Awaitable[None]]]):
+class CommandsParser[Context](Parser[Callable[[Context], Awaitable[None]]]):
     commands: "Commands[Context]"
 
     def __init__(self, commands: "Commands[Context]") -> None:
@@ -120,7 +116,7 @@ class CommandsParser(Generic[Context], Parser[Callable[[Context], Awaitable[None
         else:
             return ParseFail(f"No such command: {invocation.name}", processed=0)
 
-class Commands(Generic[Context]):
+class Commands[Context]:
     _commands: list[Command[Context]]
 
     def __init__(self) -> None:

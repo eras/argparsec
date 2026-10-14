@@ -2,20 +2,16 @@ import asyncio
 
 import unittest
 
-from typing import TypeVar
-
 import argparsec.commands as c
 
 import argparsec.parser as p
-
-Result = TypeVar('Result', bound=object)
 
 class TestCommands(unittest.TestCase):
     def __init__(self, method_name: str) -> None:
         super().__init__(method_name)
         self.longMessage = True
 
-    def setup_commands(self, called: list[Result | None], valid: p.Parser[Result]) -> c.Commands[None]:
+    def setup_commands[Result](self, called: list[Result | None], valid: p.Parser[Result]) -> c.Commands[None]:
         cmds = c.Commands[None]()
         async def command0(context: None, valid: Result) -> None:
             called[0] = valid
