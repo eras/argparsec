@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "argparsec"
 version = "0.1.0"
-description = "Typed parser combinators for lists of argument tokens"
+description = "Typed parser combinators and asynchronous command dispatch"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
