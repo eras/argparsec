@@ -16,22 +16,30 @@ from .utils import assert_some
 
 logger = logging.getLogger(__name__)
 
+
 class CommandsException(Exception):
     pass
+
 
 class ParseError(CommandsException):
     pass
 
+
 class InvocationEmptyError(ParseError):
     pass
+
 
 @dataclass
 class MarkedWord:
     word: str
     marked: bool
 
+
 def mark_words(args: list[str], processed: int) -> list[MarkedWord]:
-    return [MarkedWord(word=word, marked=idx == processed) for idx, word in enumerate(args)]
+    return [
+        MarkedWord(word=word, marked=idx == processed) for idx, word in enumerate(args)
+    ]
+
 
 class CommandParseError(ParseError):
     marked_args: list[MarkedWord]
@@ -40,6 +48,7 @@ class CommandParseError(ParseError):
         super().__init__(message)
         self.marked_args = marked_args
 
+
 @dataclass
 class Invocation:
     name: str
@@ -47,14 +56,16 @@ class Invocation:
 
     @staticmethod
     def parse(message: str) -> "Invocation":
-        command = assert_some(re.match(r"^[^#]*", message), "This should always match")[0] # extract non-comment part
+        command = assert_some(re.match(r"^[^#]*", message), "This should always match")[
+            0
+        ]  # extract non-comment part
         fields = [field for field in re.split(r"  *", command) if field != ""]
         if len(fields):
             logger.debug("Command: %s", fields)
-            return Invocation(name=fields[0],
-                              args=fields[1:])
+            return Invocation(name=fields[0], args=fields[1:])
         else:
             raise InvocationEmptyError()
+
 
 class Command[Context](ABC):
     name: str
@@ -74,13 +85,18 @@ class Command[Context](ABC):
         """Validate the command arguments without invoking it"""
         pass
 
+
 class Function[Context, Parsed](Command[Context]):
     parser: Parser[Parsed]
     fn: list[Callable[[Context, Parsed], Coroutine[Any, Any, None]]]
 
-    def __init__(self, name: str, description: str,
-                 parser: Parser[Parsed],
-                 fn: Callable[[Context, Parsed], Coroutine[Any, Any, None]]) -> None:
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        parser: Parser[Parsed],
+        fn: Callable[[Context, Parsed], Coroutine[Any, Any, None]],
+    ) -> None:
         super().__init__(name, description)
         self.parser = parser
         self.fn = [fn]
@@ -89,15 +105,14 @@ class Function[Context, Parsed](Command[Context]):
         validated = self.parser(invocation.args)
         if isinstance(validated, ParseFail):
             marked_args = [MarkedWord(word=invocation.name, marked=False)]
-            marked_args.extend(mark_words(invocation.args,
-                                          validated.processed))
-            raise CommandParseError(validated.message,
-                                    marked_args=marked_args)
+            marked_args.extend(mark_words(invocation.args, validated.processed))
+            raise CommandParseError(validated.message, marked_args=marked_args)
         assert isinstance(validated, ParseOK)
         await self.fn[0](context, validated.value)
 
     def parse(self, context: Context, invocation: Invocation) -> bool:
         return self.parser(invocation.args) is not None
+
 
 class CommandsParser[Context](Parser[Callable[[Context], Awaitable[None]]]):
     commands: "Commands[Context]"
@@ -105,16 +120,21 @@ class CommandsParser[Context](Parser[Callable[[Context], Awaitable[None]]]):
     def __init__(self, commands: "Commands[Context]") -> None:
         self.commands = commands
 
-    def parse(self, args: list[str]) -> ParseResult[Callable[[Context], Awaitable[None]]]:
+    def parse(
+        self, args: list[str]
+    ) -> ParseResult[Callable[[Context], Awaitable[None]]]:
         if len(args) == 0:
             return ParseFail("No command name", processed=0)
         invocation = Invocation(args[0], args[1:])
         if self.commands.has_command(invocation.name):
+
             async def invoke(context: Context) -> None:
                 await self.commands.invoke(context, invocation)
+
             return ParseOK(invoke, processed=len(args))
         else:
             return ParseFail(f"No such command: {invocation.name}", processed=0)
+
 
 class Commands[Context]:
     _commands: list[Command[Context]]
@@ -126,12 +146,20 @@ class Commands[Context]:
         self._commands.append(command)
 
     def has_command(self, name: str) -> bool:
-        return bool([command for command in self._commands if command.name.lower() == name.lower()])
+        return bool(
+            [
+                command
+                for command in self._commands
+                if command.name.lower() == name.lower()
+            ]
+        )
 
     def parse(self, context: Context, invocation: Invocation) -> bool:
         """Validate requires the matching command to exist"""
         assert self.has_command(invocation.name)
-        return bool([command for command in self._commands if command.name == invocation.name])
+        return bool(
+            [command for command in self._commands if command.name == invocation.name]
+        )
 
     async def invoke(self, context: Context, invocation: Invocation) -> None:
         for command in self._commands:
@@ -146,5 +174,6 @@ class Commands[Context]:
 
     def parser(self) -> CommandsParser[Context]:
         return CommandsParser(self)
+
 
 logger.setLevel(logging.DEBUG)
