@@ -48,7 +48,10 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(commands.has_command("TEST1"))
         await commands.invoke(None, c.Invocation("TEST1", ["80"]))
         self.assertEqual(called, [None, 80])
-        self.assertEqual(commands.help(), "test0: first\ntest1: second")
+        self.assertEqual(
+            commands.help(),
+            "test0 123: first\n  e.g. test0 123\ntest1 123: second\n  e.g. test1 123",
+        )
 
     async def test_invalid_arguments_preserve_diagnostics_without_execution(
         self,

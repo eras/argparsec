@@ -64,7 +64,13 @@ from .parser import (
     try_parses,
 )
 
+from .help import Help, HelpError, Meta, render_help
+
 __all__ = [
+    "Help",
+    "HelpError",
+    "Meta",
+    "render_help",
     "Adjacent",
     "AnyStr",
     "Bool",
