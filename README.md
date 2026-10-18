@@ -92,6 +92,49 @@ print(p.render_help(grammar))
 
 Use `Help[YourContext]().meta(...)` for lazy metadata and render with that same `Help` instance. Opaque custom parsers require explicit structured usage; documentation does not infer restrictions hidden inside Python callbacks. See the [generated-help migration guide](docs/generated-help.md) for the API, typing boundary, sections, scopes, dynamic grammars, and agent-oriented HomeMau/TeslaBot migration examples.
 
+## Focused Help
+
+Use the same executable grammar to discover command names and select help, including synonyms:
+
+```python
+import argparsec as p
+
+grammar = p.OneOf(
+    p.Meta(
+        p.OneOf(
+            p.Keyword("notify", p.AnyStr()),
+            p.Keyword("ping", p.AnyStr()),
+        ),
+        mode="entry",
+        description="Send a notification",
+        examples=[("ping", "hello")],
+    ).any(),
+    p.Meta(
+        p.Keyword("cancel", p.Int()),
+        mode="entry",
+        description="Cancel a job",
+        examples=[("cancel", "42")],
+    ).any(),
+)
+
+document = p.Help[None]().document(grammar, None)
+assert document.command_names() == {"notify", "ping", "cancel"}
+
+# Both synonyms select the same entry, description, and examples.
+assert document.for_command("notify").render() == document.for_command("ping").render()
+print(document.for_command("ping").render(description_layout="below"))
+```
+
+Output:
+
+```text
+notify TEXT | ping TEXT
+  Send a notification
+  e.g. ping hello
+```
+
+The `.any()` calls allow alternatives with different result types without changing parsing. Discovery requires a nonoptional literal prefix in every top-level alternative and preserves spelling and case. Unsupported prefixes raise `HelpError`. Selection copies matching entries and reachable definitions without mutating the source or reevaluating providers. Missing topics produce an empty document. Discover user-visible topics only from a visibility-filtered document; applications own topic errors and any separate builtin-name catalogue. See the [guide](docs/generated-help.md#command-discovery-and-focused-help) for the exact contract and rendering options.
+
 ## Development
 
 ```sh

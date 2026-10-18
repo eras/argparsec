@@ -60,6 +60,40 @@ grammar = p.OneOf(
 print(p.render_help(grammar, sections=[Section.SCHEDULING]))
 ```
 
+## Command discovery and focused help
+
+Resolve the grammar with `document = renderer.document(grammar, context, ...)`, applying visibility and section filters for the requesting user. `document.command_names()` returns a fresh `set[str]` of literal command heads from top-level entries only. `document.for_command(topic)` returns a separate resolved `Document` containing every matching top-level entry. Synonyms select the entire entry, not a rewritten usage fragment. Multiple entries and sections can match one head. Definitions and subordinate entries are not a separate command catalogue.
+
+Discovery accepts `Literal`, `Annotation` around a supported prefix, nonempty `SequenceUsage` whose first component is supported, and nonempty `Alternatives` whose every branch is supported. It reads only the first sequence component: `cancel sub ID` contributes `cancel`, and `every INTERVAL until TIME` contributes `every`. A leading `Argument`, `Reference`, `OptionalUsage`, `Repetition`, `Unordered`, empty sequence, or empty alternative raises `HelpError`, including inside any prefix alternative. Leading references are not expanded, empty prefixes are not skipped, and nullable FIRST sets are not calculated. Tail syntax after a supported head is unrestricted. This is structural discovery, not an execution-based recognizer.
+
+Matching preserves literal spelling and is exact and case-sensitive, including for documents built from case-insensitive command registries. Topic paths are single literal tokens, not multiword navigation. Applications implementing different matching policies must do so explicitly.
+
+Selection retains section/order metadata, descriptions, examples (including suppression), inline annotations, general root/scope notes, subordinate entries, and definitions reachable from retained entry usages. General scope notes/examples apply to the scope and are retained unchanged when entries remain; attach command-specific notes/examples to entries. Unreachable definition edges are pruned. Mutable entries, scopes, and their collections are copied with graph memoization, preserving reference identity, relative ownership, same-name distinctions, and named cycles. Immutable usage nodes and example tuples can be shared. The source document is not modified. Discovery, selection, and rendering do not invoke parsers, semantic maps, validators, handlers, parsing factories, or resolved metadata providers. Rendering can invoke the explicitly supplied example formatter.
+
+An absent topic returns an empty document without root notes. A filtered document intentionally cannot distinguish unknown commands from known commands with no visible entries. If that distinction is needed, applications must maintain or supply a separate trusted catalogue and choose their own error policy. Never expose hidden descriptions/examples by discovering topics from an unfiltered secret-bearing grammar. A separate static builtin-name catalogue for alias protection is not automatically a safe public help catalogue. There is no global discovery cache: resolving a fresh document uses the supplied context and current live registry; selecting an existing document uses that snapshot.
+
+## Render configuration
+
+`Document.render(...)`, `Help.render(...)`, and `render_help(...)` accept these keyword-only presentation options:
+
+- `description_layout="inline"` (default) appends entry descriptions to usage; `"below"` places them on separate lines, indented two spaces from usage. Inline annotations remain located syntax/prose notes in both modes.
+- `definition_layout="entry"` (default) expands reachable definitions beneath each referring entry. `"section"` places direct referenced definitions after all entries in each enclosing section, once per identity in that section. Unsectioned entries form their own group. Definitions use the section's entry indentation and first-reference order in presentation-sorted entries. Relative child scopes remain nested; this is not global graph flattening.
+- `repeat_section_headings=True` (default) renders child section headings. `False` suppresses a child heading equal to its enclosing entry's section, without suppressing distinct headings.
+- `example_formatter=shlex.join` (default) formats complete example token sequences. For whitespace-tokenizing consumers, `example_formatter=" ".join` is an explicit alternative. The hook applies to entry examples and root/scope examples; it does not change usage quoting or parsing.
+
+Section-level sharing preserves identity, not just display names. Same-identity definitions must have equal resolved relative graphs (including metadata and child scopes); distinct direct identities must have distinct display names within the section. Conflicts raise `HelpError` advising `definition_layout="entry"`; the renderer does not silently merge or rename incompatible definitions. Named recursion terminates in either mode. Sharing does not cross sections or relative child-scope boundaries. Defaults preserve ordinary rendering behavior.
+
+```python
+text = document.for_command("run").render(
+    description_layout="below",
+    definition_layout="section",
+    repeat_section_headings=False,
+    example_formatter=" ".join,
+)
+```
+
+Custom transports can consume `Document`, `Scope`, `Entry`, and structured usage directly to distinguish syntax from prose. Text indentation is presentation, not a transport format. HTML escaping, markup, bot prefixes, permissions, and application-specific alias context belong at the application boundary.
+
 ## Context typing and lazy providers
 
 Keep dispatch context and help context independent. The context type is unbounded: it need not inherit a library base class.
@@ -122,12 +156,12 @@ The provider is a separate help-time contract and must describe the same syntax 
 
 ## Agent migration: HomeMau
 
-1. Extract input-independent grammar builders from `homemau/commands.py`. `_Tail(text, ...)` currently captures original-input offsets; help must not fabricate an invocation to initialize such state. Keep input capture in the execution layer, or expose an opaque tail leaf with explicit repetition usage and a description of original-text preservation.
-2. Annotate `_Word` with literal alternatives reflecting its case-sensitive behavior. Annotate `_LocalTime` with the structured one-/two-token alternatives above. Do not replace it with a superficially similar parser unless its actual accepted language and case rules match. Document calendar/DST validation as semantic constraints.
-3. Fix grammar generation itself: `_recurrence_grammar` enumerates `ending="both"`, but `recurring` rejects simultaneous `until` and `for`. Construct mutually exclusive branches instead. Exclude outer `at` from calendar recurrence forms where the callback rejects it. Do not hide invalid branches only in metadata: parsing and help must share the corrected reusable grammar.
-4. Extract reusable action subsets. Scheduled `status` is rejected semantically; exclude it structurally from the scheduled-action parser. Event templates accept restricted effects and reject status and other non-action commands; give event actions their own grammar and reference identity. Keep `until ack` notification-only restrictions explicit in the corresponding branch where practical.
-5. Keep genuine semantic checks (calendar validity, future bounds, permissions, application-state checks) in execution and explain them in descriptions. Use complete examples that meet those constraints. Never claim arbitrary callbacks can be reverse-engineered into exact documentation.
-6. Render the same parser graph used by execution. Replace the manually maintained syntax block only after tests compare representative accepted/rejected recurrence, scheduling, and event forms against generated syntax.
+1. Resolve the executable grammar through the owning `Help` instance using the request's visibility context. Keep kitchen permissions, room configuration, and separately permission-filtered switch aliases in HomeMau. Do not manufacture runtime settings or invoke parsing to discover names; use input-independent structural grammar and explicitly supplied help providers.
+2. Replace local `_leading_words()` traversal with `document.command_names()`. Use a separate trusted static document/catalogue for builtin/alias collision protection if needed; user-visible help topics must come from the permission-filtered document. Literal heads such as `every` are commands; internal modifiers such as `until` and `for` are not separately reserved.
+3. Replace direct assignment to `document.scope.entries` with `document.for_command(topic)`. It retains all entries for heads such as `cancel` across sections, preserves synonym entries such as `notify`/`ping`, and keeps referenced action definitions for `at`. Topic errors and unknown-versus-hidden policy remain in the application. Focused topics do not expand saved aliases.
+4. Replace recursive section-clearing and fragment rendering with `description_layout="below"`, `definition_layout="section"`, `repeat_section_headings=False`, and `example_formatter=" ".join` where these match the transport's presentation. Verify relative-scope compatibility; a hoisting conflict requires distinct definition names or entry-local rendering, not name-based merging. Matrix bold headings, syntax/prose markup, escaping, and prefix formatting remain application concerns; use the structured model when text indentation alone is insufficient.
+5. Preserve the grammar's restricted scheduled/event-action references and its semantic checks for dates, DST, recurrence bounds, aliases, and permissions. Discovery and help selection must not alter parser acceptance, backtracking, callback counts, alias expansion depth, or effects. `CaptureOnly` executes its child's parsing/mapping callbacks and is not a callback-free structural recognizer.
+6. Verify complete examples, focused synonyms, multi-entry heads, hidden sections, recursive/shared definitions, no semantic execution, and identical accepted/rejected commands. Keep prefixless conversational admission, alias expansion/cycle limits, and command dispatch policy in HomeMau. The README example and independent argparsec tests demonstrate the library APIs without making HomeMau a test dependency.
 
 ## Agent migration: TeslaBot
 

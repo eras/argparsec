@@ -201,11 +201,20 @@ class Help[C]:
         *,
         sections: Sequence[enum.Enum] | None = None,
         section_order: Sequence[enum.Enum] | None = None,
+        description_layout: Mode["inline", "below"] = "inline",
+        definition_layout: Mode["entry", "section"] = "entry",
+        repeat_section_headings: bool = True,
+        example_formatter: Callable[[Sequence[str]], str] = shlex.join,
     ) -> str:
         """Render one request; no provider results survive between requests."""
         return self.document(
             parser, context, sections=sections, section_order=section_order
-        ).render()
+        ).render(
+            description_layout=description_layout,
+            definition_layout=definition_layout,
+            repeat_section_headings=repeat_section_headings,
+            example_formatter=example_formatter,
+        )
 
 
 def render_help(
@@ -213,10 +222,21 @@ def render_help(
     *,
     sections: Sequence[enum.Enum] | None = None,
     section_order: Sequence[enum.Enum] | None = None,
+    description_layout: Mode["inline", "below"] = "inline",
+    definition_layout: Mode["entry", "section"] = "entry",
+    repeat_section_headings: bool = True,
+    example_formatter: Callable[[Sequence[str]], str] = shlex.join,
 ) -> str:
     """Render context-free metadata; contextual wrappers require their owner."""
     return Help[None]().render(
-        parser, None, sections=sections, section_order=section_order
+        parser,
+        None,
+        sections=sections,
+        section_order=section_order,
+        description_layout=description_layout,
+        definition_layout=definition_layout,
+        repeat_section_headings=repeat_section_headings,
+        example_formatter=example_formatter,
     )
 
 
@@ -285,18 +305,64 @@ class Document:
     scope: Scope
     section_order: tuple[enum.Enum, ...] = ()
 
-    def render(self) -> str:
-        """Render sections and relative child scopes, expanding each identity once."""
+    def command_names(self) -> set[str]:
+        """Return case-preserving literal heads of visible top-level entries.
+
+        Every alternative must start with a literal, possibly wrapped in an
+        annotation or nonempty sequence. Empty, optional, reference, repeated,
+        unordered, and opaque leading syntax raises HelpError. This is not a
+        nullable FIRST-set calculation and does not inspect subordinate entries.
+        """
+        return set().union(*(_command_heads(e.usage) for e in self.scope.entries))
+
+    def for_command(self, topic: str) -> "Document":
+        """Copy matching top-level entries and reachable definitions, without providers.
+
+        Matching is exact and case-sensitive. An absent topic returns an empty
+        document; a separate application-owned catalogue is needed to distinguish
+        unknown topics from topics omitted by visibility or section filtering.
+        The source model is not mutated, and mutable scopes/entries are copied.
+        """
+        entries = [e for e in self.scope.entries if topic in _command_heads(e.usage)]
+        if not entries:
+            return Document(Scope(), self.section_order)
+        return Document(
+            _Selection().scope(self.scope, entries=entries), self.section_order
+        )
+
+    def render(
+        self,
+        *,
+        description_layout: Mode["inline", "below"] = "inline",
+        definition_layout: Mode["entry", "section"] = "entry",
+        repeat_section_headings: bool = True,
+        example_formatter: Callable[[Sequence[str]], str] = shlex.join,
+    ) -> str:
+        """Render resolved scopes without providers, using opt-in presentation choices.
+
+        Defaults keep descriptions inline and definitions local to each entry.
+        Section sharing rejects ambiguous names or incompatible relative graphs
+        with HelpError. The example formatter receives complete token sequences.
+        """
+        if description_layout not in ("inline", "below"):
+            raise ValueError("description_layout must be 'inline' or 'below'")
+        if definition_layout not in ("entry", "section"):
+            raise ValueError("definition_layout must be 'entry' or 'section'")
         lines: list[str] = []
 
-        def scope_lines(scope: Scope, indent: str, active: frozenset[int]) -> None:
+        def scope_lines(
+            scope: Scope,
+            indent: str,
+            active: frozenset[int],
+            inherited: enum.Enum | None = None,
+        ) -> None:
             """Order presentation entries without altering executable alternatives."""
             for annotation in scope.annotations:
                 if annotation.description:
                     lines.append(indent + annotation.description)
                 for example in annotation.examples or ():
                     if example:
-                        lines.append(indent + "  e.g. " + shlex.join(example))
+                        lines.append(indent + "  e.g. " + example_formatter(example))
             sections = list(dict.fromkeys(entry.section for entry in scope.entries))
             ordered: list[enum.Enum | None] = list(
                 dict.fromkeys(x for x in self.section_order if x in sections)
@@ -311,30 +377,46 @@ class Document:
                     )
             for section in ordered:
                 prefix = indent
-                if section is not None:
+                if section is not None and (
+                    repeat_section_headings or section != inherited
+                ):
                     lines.append(indent + str(section.value) + ":")
                     prefix += "  "
-                for entry in sorted(
+                entries = sorted(
                     (e for e in scope.entries if e.section == section),
                     key=lambda e: e.order,
-                ):
-                    entry_lines(entry, prefix, active)
+                )
+                definitions = (
+                    _section_definitions(entries, active)
+                    if definition_layout == "section"
+                    else {}
+                )
+                for entry in entries:
+                    entry_lines(
+                        entry, prefix, active, expand=definition_layout == "entry"
+                    )
+                for identity, definition in definitions.items():
+                    entry_lines(definition, prefix, active | {identity})
 
-        def entry_lines(entry: Entry, indent: str, active: frozenset[int]) -> None:
+        def entry_lines(
+            entry: Entry, indent: str, active: frozenset[int], *, expand: bool = True
+        ) -> None:
             """Expand only definitions reachable from this retained entry."""
             label = f"<{entry.name}> = " if entry.name else ""
             text = label + format_usage(entry.usage)
-            if entry.description:
+            if entry.description and description_layout == "inline":
                 text += f": {entry.description}"
             lines.append(indent + text)
+            if entry.description and description_layout == "below":
+                lines.append(indent + "  " + entry.description)
             for note in _notes(entry.usage):
                 lines.append(indent + "  " + note)
             for example in entry.examples:
                 if example:
-                    lines.append(indent + "  e.g. " + shlex.join(example))
-            scope_lines(entry.scope, indent + "  ", active)
+                    lines.append(indent + "  e.g. " + example_formatter(example))
+            scope_lines(entry.scope, indent + "  ", active, entry.section)
             seen: set[int] = set(active)
-            for ref in _references(entry.usage):
+            for ref in _references(entry.usage) if expand else ():
                 if ref.identity not in seen and ref.identity in entry.scope.definitions:
                     seen.add(ref.identity)
                     entry_lines(
@@ -345,6 +427,123 @@ class Document:
 
         scope_lines(self.scope, "", frozenset())
         return "\n".join(lines)
+
+
+def _command_heads(usage: Usage) -> set[str]:
+    """Discover strict, nonnullable literal prefixes without resolving references."""
+    match usage:
+        case Literal(text):
+            return {text}
+        case Annotation(item):
+            return _command_heads(item)
+        case SequenceUsage(items) if items:
+            return _command_heads(items[0])
+        case Alternatives(items) if items:
+            return set().union(*(_command_heads(item) for item in items))
+        case _:
+            raise HelpError(
+                f"command discovery requires a nonoptional literal prefix; got {type(usage).__name__}"
+            )
+
+
+class _Selection:
+    """Copy retained model graphs with identity memoization and reference pruning."""
+
+    def __init__(self) -> None:
+        """Keep copy ownership local to one selection, including recursive graphs."""
+        self.scopes: dict[int, Scope] = {}
+        self.entries: dict[int, Entry] = {}
+
+    def entry(self, source: Entry) -> Entry:
+        """Copy an entry before descending so named recursive references terminate."""
+        identity = id(source)
+        if identity not in self.entries:
+            result = dataclasses.replace(source, scope=Scope())
+            self.entries[identity] = result
+            result.scope = self.scope(
+                source.scope, references=_references(source.usage)
+            )
+        return self.entries[identity]
+
+    def scope(
+        self,
+        source: Scope,
+        *,
+        entries: list[Entry] | None = None,
+        references: Sequence[Reference] = (),
+    ) -> Scope:
+        """Copy entries and only the definition edges used by their owning usage."""
+        identity = id(source)
+        retained = source.entries if entries is None else entries
+        if identity not in self.scopes:
+            result = Scope(annotations=source.annotations.copy())
+            self.scopes[identity] = result
+            result.entries = [self.entry(entry) for entry in retained]
+        result = self.scopes[identity]
+        roots = list(references)
+        roots.extend(ref for entry in retained for ref in _references(entry.usage))
+        for ref in roots:
+            if (
+                ref.identity in source.definitions
+                and ref.identity not in result.definitions
+            ):
+                # Entry memoization closes recursive definition edges.
+                definition = source.definitions[ref.identity]
+                result.definitions[ref.identity] = self.entry(definition)
+        return result
+
+
+def _same_definition(left: Entry, right: Entry, seen: set[tuple[int, int]]) -> bool:
+    """Compare resolved relative definition graphs without following cycles twice."""
+    key = (id(left), id(right))
+    if key in seen:
+        return True
+    seen.add(key)
+    if (
+        left.usage != right.usage
+        or left.description != right.description
+        or left.examples != right.examples
+        or left.section != right.section
+        or left.order != right.order
+        or left.name != right.name
+        or left.scope.annotations != right.scope.annotations
+        or len(left.scope.entries) != len(right.scope.entries)
+        or left.scope.definitions.keys() != right.scope.definitions.keys()
+    ):
+        return False
+    return all(
+        _same_definition(a, b, seen)
+        for a, b in zip(left.scope.entries, right.scope.entries)
+    ) and all(
+        _same_definition(value, right.scope.definitions[identity], seen)
+        for identity, value in left.scope.definitions.items()
+    )
+
+
+def _section_definitions(
+    entries: Sequence[Entry], active: frozenset[int]
+) -> dict[int, Entry]:
+    """Hoist direct references only when identity, names, and relative scopes agree."""
+    result: dict[int, Entry] = {}
+    names: dict[str, int] = {}
+    for entry in entries:
+        for ref in _references(entry.usage):
+            if ref.identity in active or ref.identity not in entry.scope.definitions:
+                continue
+            definition = entry.scope.definitions[ref.identity]
+            if ref.name in names and names[ref.name] != ref.identity:
+                raise HelpError(
+                    f"section definitions have conflicting name {ref.name!r}; use definition_layout='entry'"
+                )
+            if ref.identity in result and not _same_definition(
+                result[ref.identity], definition, set()
+            ):
+                raise HelpError(
+                    f"section definition {ref.name!r} has different relative scopes; use definition_layout='entry'"
+                )
+            names[ref.name] = ref.identity
+            result.setdefault(ref.identity, definition)
+    return result
 
 
 def _references(usage: Usage) -> list[Reference]:
