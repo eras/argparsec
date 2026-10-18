@@ -5,18 +5,24 @@ Typed parser combinators and optional asynchronous command dispatch for lists of
 ## Example
 
 ```python
+import typing
+
 import argparsec as p
 
 grammar = p.Remaining(p.Keyword("limit", p.Int()))
 result = grammar.parse(["limit", "80"])
 
-if isinstance(result, p.ParseOK):
-    print(result.value)      # 80
-    print(result.processed)  # 2
-else:
-    assert isinstance(result, p.ParseFail)
-    print(result.message)
+match result:
+    case p.ParseOK(value=value, processed=processed):
+        print(value)      # 80
+        print(processed)  # 2
+    case p.ParseFail(message=message):
+        print(message)
+    case _:
+        typing.assert_never(result)
 ```
+
+`ParseResult[T]` is the union alias `ParseOK[T] | ParseFail[T]`. The `assert_never` fallback lets mypy check that every result variant is handled. Alternatively, enable mypy's `exhaustive-match` error code and omit the fallback. Use the concrete variants for `isinstance` checks; `ParseResult` is a type alias, not a class, and cannot be subclassed or used with `isinstance`.
 
 Parser input is already tokenized. Tokenization, quoting, and transport normalization belong to the caller, with a simple tokenizer available in the optional command module below. Individual numeric parsers require complete tokens: `"123abc"` is not an integer.
 
@@ -66,8 +72,8 @@ asyncio.run(main())
 - `Function.invoke` parses arguments before calling its asynchronous handler. Failures raise `CommandParseError` with the original diagnostic and marked tokens. Callback exceptions propagate normally. Wrap the argument parser in `Remaining` if trailing arguments must fail.
 - Registry lookup and execution are case-insensitive. Duplicate names are allowed; all matching handlers execute sequentially in registration order. Direct invocation of an unknown name does nothing.
 - `Commands.parser()` is a live view of the registry. It returns a parser producing an awaitable callback for a recognized name. Parsing does not execute the handler or validate its arguments; validation occurs when the returned callback is awaited.
-- The legacy boolean `Function.parse` and `Commands.parse` methods are preserved, but are not reliable argument validators: the former checks only whether the parser result is non-None, and the latter checks exact-name membership after asserting case-insensitive membership. Use a parser's `ParseOK`/`ParseFail` result or `Function.invoke` instead. These semantics have not been silently changed during extraction.
-- The module retains detailed DEBUG command-token logging through Python's standard logging system. Applications configure handlers; the library does not install them.
+- The boolean `Function.parse` and `Commands.parse` methods are not reliable argument validators: the former checks only whether the parser result is non-None, and the latter checks exact-name membership after asserting case-insensitive membership. Use a parser's `ParseOK`/`ParseFail` result or `Function.invoke` instead.
+- The module provides detailed DEBUG command-token logging through Python's standard logging system. Applications configure handlers; the library does not install them.
 
 ## Development
 

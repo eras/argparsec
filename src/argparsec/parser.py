@@ -22,7 +22,9 @@ class Unknown(ABC):
     pass
 
 
-class ParseResult[Parsed](ABC):
+class _ParseResultBase[Parsed](ABC):
+    """Share result formatting and equality without exposing an open result type."""
+
     def __str__(self) -> str:
         return self.__repr__()
 
@@ -40,7 +42,7 @@ class ParseResult[Parsed](ABC):
         return False
 
 
-class ParseOK[Parsed](ParseResult[Parsed]):
+class ParseOK[Parsed](_ParseResultBase[Parsed]):
     value: Parsed
     """Result of parsing"""
 
@@ -61,7 +63,7 @@ class ParseOK[Parsed](ParseResult[Parsed]):
         return (self.value, self.processed) == (other.value, other.processed)
 
 
-class ParseFail[Parsed](ParseResult[Parsed]):
+class ParseFail[Parsed](_ParseResultBase[Parsed]):
     message: str
     processed: int
     """How many args from invocation.args were processed"""
@@ -81,6 +83,9 @@ class ParseFail[Parsed](ParseResult[Parsed]):
 
     def equal(self, other: "ParseFail[Parsed]") -> bool:
         return self.message == other.message and self.processed == other.processed
+
+
+type ParseResult[Parsed] = ParseOK[Parsed] | ParseFail[Parsed]
 
 
 class Parser[Parsed](ABC):
@@ -1015,10 +1020,10 @@ class HhMm(Parser[tuple[int, int]]):
         if isinstance(result, ParseFail):
             return ParseFail("Failed to parse hh:mm", processed=0)
         assert isinstance(result, ParseOK)
-        hours = int(result.value[0])
+        hours = int(assert_some(result.value[0]))
         if hours > 23:
             return ParseFail("Hours cannot be more than 23", processed=0)
-        minutes = int(result.value[1])
+        minutes = int(assert_some(result.value[1]))
         if minutes > 59:
             return ParseFail("Minutes cannot be more than 59", processed=0)
         return ParseOK((hours, minutes), processed=result.processed)
