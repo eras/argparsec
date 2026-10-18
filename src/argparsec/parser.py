@@ -1361,3 +1361,12 @@ class TimeOrDateTime(Parser[datetime.datetime]):
         else:
             assert isinstance(result, ParseFail)
             return result.forward(processed=0)
+
+
+# Load presentation after parser definitions so both public import styles agree.
+from .help import (
+    Help as Help,
+    HelpError as HelpError,
+    Meta as Meta,
+    render_help as render_help,
+)

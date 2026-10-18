@@ -75,6 +75,23 @@ asyncio.run(main())
 - The boolean `Function.parse` and `Commands.parse` methods are not reliable argument validators: the former checks only whether the parser result is non-None, and the latter checks exact-name membership after asserting case-insensitive membership. Use a parser's `ParseOK`/`ParseFail` result or `Function.invoke` instead.
 - The module provides detailed DEBUG command-token logging through Python's standard logging system. Applications configure handlers; the library does not install them.
 
+## Generated Help
+
+`render_help(grammar)` derives syntax from the executable parser structure. `Meta` adds optional descriptions, complete-token examples, sections, and named definitions without changing parsing. `Commands.help()` documents the live registered argument grammars, including nested registries.
+
+```python
+import argparsec as p
+
+grammar = p.Meta(
+    p.Keyword("limit", p.Int()),
+    description="Set an unsigned limit",
+    examples=[("limit", "80")],
+)
+print(p.render_help(grammar))
+```
+
+Use `Help[YourContext]().meta(...)` for lazy metadata and render with that same `Help` instance. Opaque custom parsers require explicit structured usage; documentation does not infer restrictions hidden inside Python callbacks. See the [generated-help migration guide](docs/generated-help.md) for the API, typing boundary, sections, scopes, dynamic grammars, and agent-oriented HomeMau/TeslaBot migration examples.
+
 ## Development
 
 ```sh

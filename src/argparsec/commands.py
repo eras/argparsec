@@ -5,10 +5,13 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Coroutine, Awaitable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, overload
+from collections.abc import Sequence
+from enum import Enum
 
 from . import parser as p
 from . import utils
+from .help import Help, render_help
 
 logger = logging.getLogger(__name__)
 
@@ -204,12 +207,44 @@ class Commands[Context]:
             if command.name.lower() == invocation.name.lower():
                 await command.invoke(context, invocation)
 
-    def help(self) -> str:
-        """Render names and descriptions in registration order."""
-        results: list[str] = []
-        for command in self._commands:
-            results.append(f"{command.name}: {command.description}")
-        return "\n".join(results)
+    @overload
+    def help(
+        self,
+        *,
+        sections: Sequence[Enum] | None = None,
+        section_order: Sequence[Enum] | None = None,
+    ) -> str:
+        """Render context-free command grammar."""
+        ...
+
+    @overload
+    def help[H](
+        self,
+        context: H,
+        *,
+        renderer: Help[H],
+        sections: Sequence[Enum] | None = None,
+        section_order: Sequence[Enum] | None = None,
+    ) -> str:
+        """Render with a typed help context independent of dispatch context."""
+        ...
+
+    def help(
+        self,
+        context: Any = None,
+        *,
+        renderer: Help[Any] | None = None,
+        sections: Sequence[Enum] | None = None,
+        section_order: Sequence[Enum] | None = None,
+    ) -> str:
+        """Generate live command syntax and descriptions without invoking handlers."""
+        if renderer is None:
+            return render_help(
+                self.parser(), sections=sections, section_order=section_order
+            )
+        return renderer.render(
+            self.parser(), context, sections=sections, section_order=section_order
+        )
 
     def parser(self) -> CommandsParser[Context]:
         """Expose the registry as a deferred-execution token parser."""
