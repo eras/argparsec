@@ -610,6 +610,33 @@ class Adjacent[T1, T2](Parser[tuple[T1, T2]]):
         return result
 
 
+class Then[T1, T2](Parser[tuple[T1, T2]]):
+    """Parse left once, then right once on the unconsumed suffix.
+
+    No token boundaries are searched and a right failure never retries the
+    left parser. Children may consume zero tokens. Success consumption is
+    summed; right failure offsets are relative to the original input.
+    Individual children may still perform speculative parsing themselves.
+    """
+
+    def __init__(self, parser_left: Parser[T1], parser_right: Parser[T2]) -> None:
+        """Retain both typed children for execution and structural help traversal."""
+        self.parser_left = parser_left
+        self.parser_right = parser_right
+
+    def parse(self, args: list[str]) -> ParseResult[tuple[T1, T2]]:
+        """Short-circuit on failure, preserving diagnostics and absolute offsets."""
+        left = self.parser_left.parse(args)
+        if isinstance(left, ParseFail):
+            return left.forward(processed=0)
+        right = self.parser_right.parse(args[left.processed :])
+        if isinstance(right, ParseFail):
+            return right.forward(processed=left.processed)
+        return ParseOK(
+            (left.value, right.value), processed=left.processed + right.processed
+        )
+
+
 class IfThen[T](Parser[T]):
     """Adjacent, but ignores the capture of the left-side parser"""
 

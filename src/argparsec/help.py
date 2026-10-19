@@ -868,6 +868,7 @@ class _Build:
                     Meta,
                     p.Keyword,
                     p.Adjacent,
+                    p.Then,
                     p.Seq,
                     p.OneOf,
                     p.Optional,
@@ -949,7 +950,7 @@ class _Build:
                 if value is not None
                 else None
             )
-        if isinstance(parser, p.Adjacent):
+        if isinstance(parser, (p.Adjacent, p.Then)):
             left, right = child(parser.parser_left, "left"), child(
                 parser.parser_right, "right"
             )
