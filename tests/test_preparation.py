@@ -2,6 +2,7 @@
 
 import typing
 import unittest
+import dataclasses
 
 import argparsec as p
 import argparsec.commands as c
@@ -266,3 +267,130 @@ class TestPreparation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             p.Help[None]().document(grammar, None).command_names(), {"limit"}
         )
+
+
+class TestPreparedValue(unittest.IsolatedAsyncioTestCase):
+    """Check typed value access without weakening deferred execution contracts."""
+
+    async def test_reference_capture_and_repeated_execution(self) -> None:
+        """Expose the exact mutable object and snapshot the callback on success."""
+        validations: list[int] = []
+        received: list[list[int]] = []
+
+        def validate(value: int) -> list[int]:
+            """Build one mutable result and record each validation."""
+            validations.append(value)
+            return [value]
+
+        async def record(context: list[list[int]], value: list[int]) -> None:
+            """Retain the callback argument's identity for inspection."""
+            context.append(value)
+
+        async def forbidden(context: list[list[int]], value: list[int]) -> None:
+            """Detect callback lookup after successful preparation."""
+            raise AssertionError("replacement callback ran")
+
+        parser = Counting(p.Map(validate, p.Int()))
+        function = c.Function("", "", parser, record)
+        grammar = function.prepared_value_parser()
+        typing.assert_type(
+            grammar, p.Parser[c.PreparedValue[list[list[int]], list[int]]]
+        )
+        result = grammar.parse(["12", "tail"])
+        assert isinstance(result, p.ParseOK)
+        prepared = result.value
+        typing.assert_type(prepared.value, list[int])
+        self.assertEqual(result.processed, 1)
+        self.assertEqual(validations, [12])
+        self.assertEqual(received, [])
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            setattr(prepared, "value", [99])
+        prepared.value.append(13)
+        function.fn[0] = forbidden
+        await prepared.invoke(received)
+        await prepared.invoke(received)
+        self.assertEqual(received, [[12, 13], [12, 13]])
+        self.assertTrue(all(value is prepared.value for value in received))
+        self.assertEqual(parser.calls, [["12", "tail"]])
+        self.assertEqual(validations, [12])
+
+    async def test_exceptions_propagate_without_reparsing(self) -> None:
+        """Retain exception identity and rerun only the handler on repeated calls."""
+        error = RuntimeError("handler failed")
+        parser = Counting(p.Int())
+        calls: list[int] = []
+
+        async def fail(context: None, value: int) -> None:
+            """Record each execution before raising the application exception."""
+            calls.append(value)
+            raise error
+
+        result = c.Function("", "", parser, fail).prepared_value_parser().parse(["12"])
+        assert isinstance(result, p.ParseOK)
+        for _ in range(2):
+            with self.assertRaises(RuntimeError) as raised:
+                await result.value.invoke(None)
+            self.assertIs(raised.exception, error)
+        self.assertEqual(calls, [12, 12])
+        self.assertEqual(parser.calls, [["12"]])
+
+    def test_failures_consumption_and_help_match_opaque_preparation(self) -> None:
+        """Keep offsets and grammar transparent without running validators for help."""
+        validations: list[int] = []
+
+        def validate(value: int) -> int:
+            """Record validation so help traversal can be checked for side effects."""
+            validations.append(value)
+            return value
+
+        async def forbidden(context: None, value: int) -> None:
+            """Detect handler execution during validation or help traversal."""
+            raise AssertionError("handler ran")
+
+        function = c.Function(
+            "", "", p.Keyword("value", p.Map(validate, p.Int())), forbidden
+        )
+        typed = function.prepared_value_parser()
+        opaque = function.prepared_parser()
+        self.assertEqual(p.render_help(typed), p.render_help(opaque))
+        document = p.Help[None]().document(p.Keyword("limit", typed), None)
+        self.assertEqual(document.command_names(), {"limit"})
+        self.assertEqual(validations, [])
+        for args in ([], ["value"], ["value", "bad"]):
+            self.assertEqual(typed.parse(args), opaque.parse(args))
+        for args in (["value", "12"], ["value", "12", "tail"]):
+            result = typed.parse(args)
+            other = opaque.parse(args)
+            assert isinstance(result, p.ParseOK)
+            assert isinstance(other, p.ParseOK)
+            self.assertEqual(result.processed, other.processed)
+            self.assertEqual(result.value.value, 12)
+        self.assertEqual(
+            p.Remaining(typed).parse(["value", "12", "tail"]),
+            p.Remaining(opaque).parse(["value", "12", "tail"]),
+        )
+
+    async def test_branch_local_completeness_with_typed_results(self) -> None:
+        """Select only a complete branch while preserving a shared value type."""
+        calls: list[str] = []
+
+        async def record(context: str, value: int) -> None:
+            """Identify the selected branch through its parsed integer."""
+            calls.append(f"{context}:{value}")
+
+        short = c.Function("set", "", p.Int(), record)
+        long = c.Function("set", "", p.Keyword("12", p.Int()), record)
+        grammar = p.OneOf(
+            p.Keyword("set", p.Remaining(short.prepared_value_parser())),
+            p.Keyword("set", p.Remaining(long.prepared_value_parser())),
+        )
+        typing.assert_type(grammar, p.OneOf[c.PreparedValue[str, int]])
+        result = grammar.parse(["set", "12", "34"])
+        assert isinstance(result, p.ParseOK)
+        self.assertEqual(result.processed, 3)
+        self.assertEqual(result.value.value, 34)
+        self.assertEqual(calls, [])
+        self.assertIsInstance(grammar.parse(["set", "12", "bad"]), p.ParseFail)
+        self.assertEqual(calls, [])
+        await result.value.invoke("selected")
+        self.assertEqual(calls, ["selected:34"])

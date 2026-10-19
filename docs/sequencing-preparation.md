@@ -31,10 +31,11 @@ Use index `0` for the equivalent keep-left operation. For a fixed leading keywor
 `Function[Context, Parsed]` connects the argument parser and asynchronous callback statically. Its preparation APIs are:
 
 - `prepared_parser() -> Parser[Prepared[Context]]`: parse argument tokens, preserving successful consumption and failure messages/offsets. The Function name and description are not included in this grammar; compose `Keyword` and `Meta` as appropriate.
+- `prepared_value_parser() -> Parser[PreparedValue[Context, Parsed]]`: provide the same preparation contract with a read-only `value` binding preserving the argument parser's static result type. The exposed value is exactly the object passed to the captured handler.
 - `prepare(invocation) -> Prepared[Context]`: parse `invocation.args` once, returning deferred execution or raising `CommandParseError` with the same diagnostic and marked original tokens as `invoke`. The invocation name is used only for diagnostics, not checked against the Function name.
 - `await prepared.invoke(context)`: call the captured handler with the captured typed value, without parsing or validating again. Handler exceptions propagate unchanged. Each awaited invocation executes again; this is not a single-use transaction.
 
-Preparation runs parsing and validation, including `Map` functions, but never calls the execution callback. Validators must be safe for speculative parsing when used inside alternatives or boundary-search combinators. Prepared values and callback references are captured on successful preparation; values are not deep-copied. Applications own mutation, authorization, context lifetime, and any execute-once policy. A parser returned by `prepared_parser()` retains the argument parser supplied when that parser view is created; the current handler is captured when parsing succeeds.
+Preparation runs parsing and validation, including `Map` functions, but never calls the execution callback. Validators must be safe for speculative parsing when used inside alternatives or boundary-search combinators. Prepared values and callback references are captured on successful preparation; values are not deep-copied. Applications own mutation, authorization, context lifetime, and any execute-once policy. Both prepared parser views retain the argument parser supplied when that view is created; the current handler is captured when parsing succeeds.
 
 ```python
 import argparsec.commands as c
@@ -50,6 +51,25 @@ prepared = function.prepare(c.Invocation("limit", ["80"]))
 # Later, in asynchronous application code:
 # await prepared.invoke(context)
 ```
+
+### Inspect the typed validated value
+
+Use the typed preparation parser for pure validation, diagnostics, or application-owned redaction without executing the handler:
+
+```python
+import typing
+
+result = function.prepared_value_parser().parse(["80"])
+assert isinstance(result, p.ParseOK)
+typing.assert_type(result.value, c.PreparedValue[list[int], int])
+typing.assert_type(result.value.value, int)
+assert result.value.value == 80
+# await result.value.invoke(context)
+```
+
+`PreparedValue` is frozen only at the field-binding level: a mutable `value` remains mutable, and changes to it can affect subsequent invocation. Neither preparation type is a deep-immutability guarantee or a capability/security boundary. Each explicit invocation passes the retained object to the captured callback, without validation or copying.
+
+Applications retaining their own `Prepared` wrapper can map over `prepared_value_parser()` to combine `prepared.value` and `prepared.invoke`. Construct the `Function` once from the real argument parser and callback; no synthetic zero-token parser, success assertion, or second parse is needed. Keep application union types in the wrapper or mapping when combining heterogeneous commands; the typed parser does not require `.any()` or value-type erasure. Existing opaque preparation APIs remain available when only execution is needed.
 
 ## Complete alternatives, including shared command names
 
