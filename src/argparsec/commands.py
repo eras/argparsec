@@ -27,6 +27,7 @@ __all__ = [
     "MarkedWord",
     "ParseError",
     "Prepared",
+    "PreparedValue",
     "mark_words",
 ]
 
@@ -127,6 +128,23 @@ class Prepared[Context]:
         await self._callback(context)
 
 
+@dataclass(frozen=True)
+class PreparedValue[Context, Value]:
+    """Expose a validated value and its captured deferred handler.
+
+    The value binding is read-only, but the object is retained by reference, not
+    copied or deeply immutable. Mutating it can affect later invocations. This
+    is not a capability or security boundary. Handler exceptions propagate.
+    """
+
+    value: Value
+    _callback: Callable[[Context, Value], Awaitable[None]]
+
+    async def invoke(self, context: Context) -> None:
+        """Pass the retained object to the handler on every call, without parsing."""
+        await self._callback(context, self.value)
+
+
 class Function[Context, Parsed](Command[Context]):
     """Validate arguments and pass the parsed value to an asynchronous callback."""
 
@@ -158,15 +176,24 @@ class Function[Context, Parsed](Command[Context]):
         execution callback. The selected callback and value are captured on success.
         """
 
-        def bind(value: Parsed) -> Prepared[Context]:
-            """Capture the current handler and parsed value without executing them."""
-            callback = self.fn[0]
+        def opaque(value: PreparedValue[Context, Parsed]) -> Prepared[Context]:
+            """Expose only deferred execution of the shared typed preparation."""
+            return Prepared(value.invoke)
 
-            async def invoke(context: Context) -> None:
-                """Pass the captured typed value to the captured handler."""
-                await callback(context, value)
+        return p.Map(opaque, self.prepared_value_parser())
 
-            return Prepared(invoke)
+    def prepared_value_parser(self) -> p.Parser[PreparedValue[Context, Parsed]]:
+        """Parse arguments once into a typed value and deferred execution.
+
+        Consumption, failures, and argument-only help match prepared_parser().
+        Parsing runs validators, never the handler. The current handler and exact
+        parsed object are captured on success; invocation never reparses. The
+        parser view retains the argument grammar present when it is created.
+        """
+
+        def bind(value: Parsed) -> PreparedValue[Context, Parsed]:
+            """Capture the current handler and value without copying or execution."""
+            return PreparedValue(value, self.fn[0])
 
         return p.Map(bind, self.parser)
 
