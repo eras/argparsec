@@ -26,6 +26,7 @@ __all__ = [
     "InvocationEmptyError",
     "MarkedWord",
     "ParseError",
+    "Prepared",
     "mark_words",
 ]
 
@@ -111,6 +112,21 @@ class Command[Context](ABC):
         pass
 
 
+@dataclass(frozen=True)
+class Prepared[Context]:
+    """Hold a validated deferred callback, reusable with caller-supplied contexts.
+
+    Invocation does not parse again. Captured values are retained by reference,
+    not copied, and callback exceptions propagate to the caller.
+    """
+
+    _callback: Callable[[Context], Awaitable[None]]
+
+    async def invoke(self, context: Context) -> None:
+        """Execute the captured callback; each awaited call executes it again."""
+        await self._callback(context)
+
+
 class Function[Context, Parsed](Command[Context]):
     """Validate arguments and pass the parsed value to an asynchronous callback."""
 
@@ -131,13 +147,42 @@ class Function[Context, Parsed](Command[Context]):
 
     async def invoke(self, context: Context, invocation: Invocation) -> None:
         """Parse arguments before execution, raising a marked diagnostic on failure."""
-        validated = self.parser(invocation.args)
+        await self.prepare(invocation).invoke(context)
+
+    def prepared_parser(self) -> p.Parser[Prepared[Context]]:
+        """Parse arguments into deferred execution, exposing the argument help grammar.
+
+        This does not consume or check the Function name. Consumption and failures
+        match the argument parser; use Remaining per alternative for complete
+        validation before OneOf selection. Parsing runs validators but never the
+        execution callback. The selected callback and value are captured on success.
+        """
+
+        def bind(value: Parsed) -> Prepared[Context]:
+            """Capture the current handler and parsed value without executing them."""
+            callback = self.fn[0]
+
+            async def invoke(context: Context) -> None:
+                """Pass the captured typed value to the captured handler."""
+                await callback(context, value)
+
+            return Prepared(invoke)
+
+        return p.Map(bind, self.parser)
+
+    def prepare(self, invocation: Invocation) -> Prepared[Context]:
+        """Validate arguments once or raise the same marked error as invoke.
+
+        The invocation name is diagnostic only, matching direct Function.invoke.
+        Prefix acceptance follows the argument parser's contract.
+        """
+        validated = self.prepared_parser().parse(invocation.args)
         if isinstance(validated, p.ParseFail):
             marked_args = [MarkedWord(word=invocation.name, marked=False)]
             marked_args.extend(mark_words(invocation.args, validated.processed))
             raise CommandParseError(validated.message, marked_args=marked_args)
         assert isinstance(validated, p.ParseOK)
-        await self.fn[0](context, validated.value)
+        return validated.value
 
     def parse(self, context: Context, invocation: Invocation) -> bool:
         """Preserve the legacy non-None check; this does not reject ParseFail."""

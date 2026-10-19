@@ -35,6 +35,7 @@ Parser input is already tokenized. Tokenization, quoting, and transport normaliz
 - `Optional` converts any wrapped parse failure into a zero-consumption success with `None`. Use `ValidOrMissing` to reject present but invalid input.
 - `List` accepts zero or more items. It stops before a failed item and rejects successful items that consume nothing on nonempty input.
 - `Adjacent` searches candidate token boundaries, with configurable left or right priority; it is not just sequential composition.
+- `Then(left, right)` parses left once and right once on the remaining suffix, returning a typed pair. It does not search boundaries or retry the left child when the right fails. Right-side failure offsets include left consumption.
 - `Separated` requires a nonempty, complete sequence. It first prefers an interpretation of the whole input as one item, then searches grammar-valid separator boundaries.
 - Speculative parsing can invoke parsers and mapping functions repeatedly. Keep them free of irreversible side effects; construct callbacks during parsing and execute them only after validation.
 
@@ -70,6 +71,7 @@ asyncio.run(main())
 
 - `Invocation(name, args)` accepts an already-tokenized command. `Invocation.parse(text)` is a convenience tokenizer: it splits literal spaces, discards empty fields, and strips everything from the first `#`. It does not implement quoting or shell syntax. Empty input raises `InvocationEmptyError`.
 - `Function.invoke` parses arguments before calling its asynchronous handler. Failures raise `CommandParseError` with the original diagnostic and marked tokens. Callback exceptions propagate normally. Wrap the argument parser in `Remaining` if trailing arguments must fail.
+- `Function.prepare(invocation)` validates arguments and returns `Prepared[Context]`; `await prepared.invoke(context)` executes the captured callback and value without reparsing. `Function.prepared_parser()` exposes argument-only preparation as `Parser[Prepared[Context]]` for composition and generated help. Preparation runs validators, not execution callbacks. See the [sequencing and preparation guide](docs/sequencing-preparation.md) for complete branch selection and migration examples.
 - Registry lookup and execution are case-insensitive. Duplicate names are allowed; all matching handlers execute sequentially in registration order. Direct invocation of an unknown name does nothing.
 - `Commands.parser()` is a live view of the registry. It returns a parser producing an awaitable callback for a recognized name. Parsing does not execute the handler or validate its arguments; validation occurs when the returned callback is awaited.
 - The boolean `Function.parse` and `Commands.parse` methods are not reliable argument validators: the former checks only whether the parser result is non-None, and the latter checks exact-name membership after asserting case-insensitive membership. Use a parser's `ParseOK`/`ParseFail` result or `Function.invoke` instead.
